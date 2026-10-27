@@ -1,0 +1,350 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>电路迷宫 · 串并联与等效电阻</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; user-select:none; }
+  body { background:#0d1026; color:#e8ecf5; font-family:"Microsoft YaHei",sans-serif; display:flex; flex-direction:column; align-items:center; min-height:100vh; padding:16px; }
+  h1 { font-size:21px; margin-bottom:2px; }
+  .sub { color:#8fa3c8; font-size:13px; margin-bottom:10px; text-align:center; }
+  canvas { background:#131838; border-radius:12px; display:block; touch-action:none; }
+  #hud { display:flex; gap:12px; font-size:13px; margin-top:10px; flex-wrap:wrap; justify-content:center; }
+  #hud b { color:#ffd166; } #hud .dim { color:#9db2d0; }
+  #tools { display:flex; gap:8px; margin-top:10px; flex-wrap:wrap; justify-content:center; }
+  .tool { background:#232c52; border:2px solid transparent; color:#cfe0ff; padding:7px 12px; border-radius:9px; font-size:13px; cursor:pointer; }
+  .tool:hover { background:#2c3766; }
+  .tool.on { border-color:#ffd166; background:#3a3418; color:#ffd166; }
+  .tool.empty { opacity:.38; cursor:not-allowed; }
+  #btns { margin-top:10px; display:flex; gap:8px; flex-wrap:wrap; justify-content:center; }
+  button { background:#2a3468; color:#fff; border:none; padding:9px 16px; border-radius:8px; font-size:14px; cursor:pointer; }
+  button:hover { background:#36447f; }
+  button.go { background:#c9962a; color:#1b1b1b; font-weight:bold; }
+  button.go:hover { background:#e0a838; }
+  #msg { min-height:22px; margin-top:9px; font-size:14px; font-weight:bold; color:#7ee8fa; text-align:center; max-width:470px; line-height:1.5; }
+  .tip { color:#8fa3c8; font-size:12px; margin-top:10px; max-width:480px; text-align:center; line-height:1.7; }
+  #curve { display:flex; gap:4px; margin-top:12px; align-items:flex-end; height:28px; }
+  #curve i { display:block; width:18px; background:#2a3468; border-radius:2px 2px 0 0; }
+  #curve i.done { background:#3f8f74; }
+  #curve i.cur { background:#ffd166; }
+</style>
+<script src="hub.js"></script>
+<script src="stories.js"></script>
+</head>
+<body>
+<h1>🔌 电路迷宫</h1>
+<div class="sub">搭一条回路点亮灯泡：串联会分压，并联会分流，直接把电池两头连起来就是短路</div>
+<canvas id="cv" width="336" height="336"></canvas>
+<div id="hud">
+  <span>第 <b id="lv">1</b>/6 关 · <span class="dim" id="lvname"></span></span>
+  <span>等效电阻 <b id="req">—</b></span>
+  <span>总电流 <b id="amp">—</b></span>
+  <span>灯泡功率 <b id="pw">—</b></span>
+  <span>目标 <b id="tgt">—</b></span>
+</div>
+<div id="tools"></div>
+<div id="btns">
+  <button class="go" onclick="fire()">⚡ 通电</button>
+  <button onclick="loadLevel(level)">↺ 重来本关</button>
+</div>
+<div id="msg"></div>
+<div id="curve"></div>
+<div class="tip">电路是真解的：每个格子把它的四个端口按规则连起来，再解节点电压方程。<br>
+串联电阻相加、并联电导相加——你搭出什么拓扑，算出来的就是什么结果。</div>
+<script>
+"use strict";
+const cv = document.getElementById('cv'), ctx = cv.getContext('2d');
+const ROWS = 6, COLS = 6, CELL = 56, W = ROWS * CELL, H = COLS * CELL;
+const VS = 12, RL = 20;                       // 电源 12V，灯泡 20Ω
+const vid = (r, c) => r * (COLS + 1) + c;                       // 格子(r,c)的左端口
+const hid = (r, c) => ROWS * (COLS + 1) + r * COLS + c;         // 格子(r,c)的上端口
+const NP  = ROWS * (COLS + 1) + (ROWS + 1) * COLS;
+
+/* 关卡：电源固定在 (2,1)，灯泡 A 固定在 (2,2)，终局关多一盏 B 在 (2,4)
+   难度：接通 → 串联分压 → 并联分流 → 喘息 → 保险丝（电流上限）→ 双灯终局 */
+const LEVELS = [
+  { name:'接通它', hint:'用导线把电池和灯泡连成一个闭合回路，然后点「通电」。',
+    lamps:[[2,2]], walls:[], kit:{ wire:14 }, lo:6.5, hi:8.0, imax:99,
+    sol:[[2,3,'wire'],[3,3,'wire'],[3,2,'wire'],[3,1,'wire'],[3,0,'wire'],[2,0,'wire']] },
+
+  { name:'太亮了', hint:'7.2W 会把灯烧了。串一个电阻分掉电压：两个 20Ω 串起来就是 40Ω。',
+    lamps:[[2,2]], walls:[[0,3],[1,3]], kit:{ wire:14, r20:3, r10:2 }, lo:0.70, hi:0.90, imax:99,
+    sol:[[2,3,'wire'],[3,3,'wire'],[3,2,'res',20,0],[3,1,'res',20,0],[3,0,'wire'],[2,0,'wire']] },
+
+  { name:'并联分流', hint:'手上只有 20Ω，怎么凑出 10Ω？让电流分两路各过一个 20Ω —— 并联。',
+    lamps:[[2,2]], walls:[[0,4],[1,4],[5,4]], kit:{ wire:16, r20:2, r40:1 }, lo:3.00, hi:3.40, imax:99,
+    sol:[[2,3,'wire'],[3,3,'wire'],[3,2,'res',20,0],[3,1,'wire'],[3,0,'wire'],[2,0,'wire'],
+         [4,3,'wire'],[4,2,'res',20,0],[4,1,'wire'],[4,0,'wire']] },
+
+  { name:'喘息 · 随便搭', hint:'宽松关：只要灯亮着、不短路，怎么接都算过。试试各种拓扑。',
+    lamps:[[2,2]], walls:[], kit:{ wire:20, r20:2, r10:2, r40:1 }, lo:0.30, hi:6.50, imax:99,
+    sol:[[2,3,'wire'],[3,3,'wire'],[3,2,'res',20,0],[3,1,'wire'],[3,0,'wire'],[2,0,'wire']] },
+
+  { name:'保险丝', hint:'新机制：保险丝只扛得住 0.35A。灯要够亮（≥1.5W），电流又不能超 —— 串联总阻得落在 34~44Ω。',
+    lamps:[[2,2]], walls:[[0,3],[1,3],[5,2]], kit:{ wire:16, r20:1, r10:2, r40:2 }, lo:1.50, hi:8.0, imax:0.35,
+    sol:[[2,3,'wire'],[3,3,'wire'],[3,2,'res',10,0],[3,1,'res',10,0],[3,0,'wire'],[2,0,'wire']] },
+
+  { name:'终局 · 双灯', hint:'两盏 20Ω 串起来是 40Ω，还要留 20Ω 给保险丝。一步步算清楚再动。',
+    lamps:[[2,2],[2,4]], walls:[[0,3],[1,3],[5,0],[5,5]], kit:{ wire:16, r20:2, r10:2, r40:1 }, lo:0.75, hi:0.85, imax:0.25,
+    sol:[[2,3,'wire'],[2,5,'wire'],[3,5,'wire'],[4,5,'wire'],[4,4,'wire'],[4,3,'wire'],[4,2,'res',20,0],
+         [4,1,'wire'],[4,0,'wire'],[3,0,'wire'],[2,0,'wire']] },
+];
+const DIFF = [1,2,3,1,4,5];
+
+let level = 0, grid = [], kit = {}, cur = null, tries = 0, doneFlag = false, glow = 0;
+
+/* ---------- 电路求解：并查集合并导线 → 拉普拉斯矩阵 → 节点电压 ---------- */
+function UF(n){ const p = new Array(n); for (let i=0;i<n;i++) p[i]=i;
+  return { f(x){ while(p[x]!==x){ p[x]=p[p[x]]; x=p[x]; } return x; },
+           u(a,b){ const x=this.f(a), y=this.f(b); if(x!==y) p[x]=y; } }; }
+
+function gauss(A, b){
+  const n = b.length, M = A.map(r => r.slice()), x = b.slice();
+  for (let col=0; col<n; col++){
+    let piv = col;
+    for (let r=col+1;r<n;r++) if (Math.abs(M[r][col]) > Math.abs(M[piv][col])) piv = r;
+    if (Math.abs(M[piv][col]) < 1e-12) return null;
+    if (piv !== col){ const t=M[piv]; M[piv]=M[col]; M[col]=t; const s=x[piv]; x[piv]=x[col]; x[col]=s; }
+    for (let r=col+1;r<n;r++){
+      const f = M[r][col] / M[col][col]; if (!f) continue;
+      for (let cc=col;cc<n;cc++) M[r][cc] -= f*M[col][cc];
+      x[r] -= f*x[col];
+    }
+  }
+  const out = new Array(n);
+  for (let r=n-1;r>=0;r--){ let s = x[r]; for (let cc=r+1;cc<n;cc++) s -= M[r][cc]*out[cc]; out[r] = s/M[r][r]; }
+  return out;
+}
+
+function solve(){
+  const uf = UF(NP), E = []; let A = -1, B = -1;
+  for (let r=0;r<ROWS;r++) for (let c=0;c<COLS;c++){
+    const cell = grid[r*COLS+c]; if (!cell) continue;
+    const Lp = vid(r,c), Rp = vid(r,c+1), Tp = hid(r,c), Dp = hid(r+1,c);
+    if (cell.k === 'wire'){ uf.u(Lp,Rp); uf.u(Lp,Tp); uf.u(Lp,Dp); }
+    else if (cell.k === 'res' || cell.k === 'lamp'){
+      const g = 1/cell.R;
+      if (cell.dir === 0) E.push([Lp, Rp, g, cell]); else E.push([Tp, Dp, g, cell]);
+    } else if (cell.k === 'src'){ if (cell.dir === 0){ A = Lp; B = Rp; } else { A = Tp; B = Dp; } }
+  }
+  if (A < 0) return { open:true, I:0, Req:Infinity, P:[] };
+  if (uf.f(A) === uf.f(B)) return { short:true, I:Infinity, Req:0, P:[] };   // 导线直连电池两端
+
+  const ids = new Map(); let m = 0;
+  const ix = p => { const q = uf.f(p); if (!ids.has(q)) ids.set(q, m++); return ids.get(q); };
+  const ia = ix(A), ib = ix(B);
+  const EE = E.map(([a,b,g,cell]) => [ix(a), ix(b), g, cell]);
+  const adj = Array.from({length:m}, () => []);
+  EE.forEach(([a,b]) => { adj[a].push(b); adj[b].push(a); });
+  const comp = new Set([ia]); const st = [ia];
+  while (st.length){ const x = st.pop(); for (const y of adj[x]) if (!comp.has(y)){ comp.add(y); st.push(y); } }
+  if (!comp.has(ib)) return { open:true, I:0, Req:Infinity, P:[] };         // 回路没闭合
+
+  const G = Array.from({length:m}, () => new Array(m).fill(0));
+  EE.forEach(([a,b,g]) => { G[a][a]+=g; G[b][b]+=g; G[a][b]-=g; G[b][a]-=g; });
+  const unk = [...comp].filter(x => x !== ia && x !== ib), k = unk.length;
+  const V = new Array(m).fill(0); V[ia] = VS; V[ib] = 0;
+  if (k > 0){
+    const M = Array.from({length:k}, () => new Array(k).fill(0)), rhs = new Array(k).fill(0);
+    for (let i=0;i<k;i++){
+      const x = unk[i];
+      for (let j=0;j<k;j++) M[i][j] = G[x][unk[j]];
+      rhs[i] = -G[x][ia]*VS;
+    }
+    const s = gauss(M, rhs);
+    if (!s) return { open:true, I:0, Req:Infinity, P:[] };
+    for (let i=0;i<k;i++) V[unk[i]] = s[i];
+  }
+  let I = 0; for (let j=0;j<m;j++) I += G[ia][j]*V[j];
+  const P = [];
+  EE.forEach(([a,b,g,cell]) => { if (cell.k === 'lamp'){ const d = V[a]-V[b]; P.push(d*d*g); } });
+  return { I, Req: VS/I, P, short:false, open:false };
+}
+
+/* ---------- 关卡装载 ---------- */
+function loadLevel(i){
+  level = Math.max(0, Math.min(LEVELS.length-1, i));
+  const L = LEVELS[level];
+  grid = new Array(ROWS*COLS).fill(null);
+  grid[2*COLS+1] = { k:'src', dir:0 };
+  L.lamps.forEach(([r,c]) => { grid[r*COLS+c] = { k:'lamp', dir:0, R:RL }; });
+  (L.walls||[]).forEach(([r,c]) => { grid[r*COLS+c] = { k:'wall' }; });
+  kit = Object.assign({}, L.kit);
+  cur = { key:'wire', k:'wire' };
+  tries = 0; doneFlag = false; glow = 0;
+  document.getElementById('lv').textContent = level+1;
+  document.getElementById('lvname').textContent = L.name;
+  document.getElementById('tgt').textContent = (L.imax < 90)
+    ? ('≥' + L.lo + 'W 且 ≤' + L.imax + 'A')
+    : (L.lo + ' ~ ' + L.hi + ' W');
+  document.getElementById('msg').textContent = L.hint;
+  renderTools(); renderCurve(); update(); draw();
+}
+function renderTools(){
+  const el = document.getElementById('tools'); el.innerHTML = '';
+  const list = [{ key:'wire', k:'wire', label:'导线' }];
+  ['r10','r20','r40'].forEach(kk => { if (kit[kk] > 0) list.push({ key:kk, k:'res', R:+kk.slice(1), label:kk.slice(1)+'Ω' }); });
+  list.push({ key:'erase', k:'erase', label:'🗑 拆除' });
+  list.forEach(t => {
+    const b = document.createElement('button');
+    b.className = 'tool' + (cur && cur.key === t.key ? ' on' : '');
+    const n = (t.key === 'wire') ? kit.wire : (t.key === 'erase' ? '' : kit[t.key]);
+    b.textContent = t.label + (n !== '' ? ' ×' + n : '');
+    b.onclick = () => { cur = t; renderTools(); };
+    el.appendChild(b);
+  });
+}
+function renderCurve(){
+  const el = document.getElementById('curve'); el.innerHTML = '';
+  DIFF.forEach((d, i) => {
+    const b = document.createElement('i');
+    b.style.height = (6 + d*5) + 'px';
+    if (i < level) b.className = 'done'; else if (i === level) b.className = 'cur';
+    b.title = '第 ' + (i+1) + ' 关';
+    el.appendChild(b);
+  });
+}
+function update(){
+  const r = solve();
+  document.getElementById('req').textContent = r.short ? '0（短路）' : (r.open ? '∞（断路）' : r.Req.toFixed(1)+'Ω');
+  document.getElementById('amp').textContent = r.short ? '∞' : (r.open ? '0.00' : r.I.toFixed(3)+'A');
+  const p = r.P.length ? Math.max.apply(null, r.P) : 0;
+  document.getElementById('pw').textContent = r.short ? '—' : p.toFixed(2)+'W';
+  return r;
+}
+
+/* ---------- 画布操作 ---------- */
+function cellAt(px, py){
+  const c = Math.floor(px/CELL), r = Math.floor(py/CELL);
+  return (r<0||c<0||r>=ROWS||c>=COLS) ? -1 : r*COLS+c;
+}
+function put(i){
+  if (i < 0 || doneFlag) return;
+  const cell = grid[i];
+  if (cell && (cell.k === 'src' || cell.k === 'lamp' || cell.k === 'wall')) return;
+  if (cur.k === 'erase'){ if (cell){ refund(cell); grid[i] = null; renderTools(); update(); draw(); } return; }
+  if (cell){
+    if (cell.k === 'res' && cur.k === 'res' && cell.R === cur.R){ cell.dir ^= 1; update(); draw(); return; }
+    if (cell.k === 'wire' && cur.k === 'wire') return;
+    refund(cell); grid[i] = null;
+  }
+  const n = (cur.k === 'wire') ? kit.wire : kit[cur.key];
+  if (!n){ document.getElementById('msg').textContent = '这种元件用完了 —— 拆掉别处的再放。'; return; }
+  if (cur.k === 'wire') kit.wire--; else kit[cur.key]--;
+  grid[i] = (cur.k === 'wire') ? { k:'wire' } : { k:'res', R:cur.R, dir:0 };
+  renderTools(); update(); draw();
+}
+function refund(cell){ if (cell.k === 'wire') kit.wire++; else if (cell.k === 'res') kit['r'+cell.R] = (kit['r'+cell.R]||0)+1; }
+
+let dragging = false;
+function evPos(e){
+  const b = cv.getBoundingClientRect();
+  return [ (e.clientX - b.left) * (W / b.width), (e.clientY - b.top) * (H / b.height) ];
+}
+cv.addEventListener('mousedown', e => { dragging = true; const [x,y] = evPos(e); put(cellAt(x,y)); });
+cv.addEventListener('mousemove', e => { if (dragging && cur.k === 'wire'){ const [x,y] = evPos(e); const i = cellAt(x,y); if (i>=0 && !grid[i]) put(i); } });
+window.addEventListener('mouseup', () => { dragging = false; });
+cv.addEventListener('touchstart', e => { e.preventDefault(); const t = e.touches[0]; const b = cv.getBoundingClientRect(); put(cellAt((t.clientX-b.left)*(W/b.width), (t.clientY-b.top)*(H/b.height))); }, {passive:false});
+
+/* ---------- 通电判定 ---------- */
+function fire(){
+  if (doneFlag) return;
+  const L = LEVELS[level], r = update();
+  tries++;
+  const el = document.getElementById('msg');
+  if (r.short){ el.textContent = '⚡ 短路！导线直接把电池两头连上了，电流不经过灯泡 —— 拆掉那根线。'; glow = 0; draw(); return; }
+  if (r.open || !r.P.length || r.P[0] <= 1e-9){ el.textContent = '💡 灯没亮：回路没闭合，或者灯泡被一根导线旁路了。'; glow = 0; draw(); return; }
+  const pmax = Math.max.apply(null, r.P), pmin = Math.min.apply(null, r.P);
+  const okP = pmax >= L.lo && pmax <= L.hi && pmin >= L.lo*0.85;
+  const okI = r.I <= L.imax + 1e-9;
+  glow = Math.min(1, pmax/7.2);
+  draw();
+  if (!okP){ el.textContent = (pmax > L.hi ? '🔆 太亮了 ' : '🔅 太暗了 ') + pmax.toFixed(2) + 'W，目标 ' + L.lo + '~' + L.hi + 'W。'; return; }
+  if (!okI){ el.textContent = '🔥 保险丝熔断：' + r.I.toFixed(3) + 'A 超过了 ' + L.imax + 'A。加大串联电阻。'; return; }
+  doneFlag = true;
+  const star = tries === 1 ? '★★★ 一次通电成功' : (tries <= 3 ? '★★☆' : '★☆☆');
+  el.textContent = '✨ ' + pmax.toFixed(2) + 'W · ' + r.I.toFixed(3) + 'A · 等效 ' + r.Req.toFixed(1) + 'Ω　' + star;
+  if (level === LEVELS.length - 1){
+    setTimeout(() => hub.finish({ win:true, title:'🎆 六关全通！',
+      text:'你已经会算串联相加、并联倒数相加，也知道短路时电流为什么会失控——剩下的只是拓扑变复杂而已。',
+      stat:'终局 ' + pmax.toFixed(2) + 'W / ' + r.I.toFixed(3) + 'A · ' + star }), 1300);
+  } else {
+    setTimeout(() => loadLevel(level+1), 1300);
+  }
+}
+
+/* ---------- 绘制 ---------- */
+function pt(r, c, side){
+  const x = c*CELL, y = r*CELL;
+  if (side === 'L') return [x, y+CELL/2]; if (side === 'R') return [x+CELL, y+CELL/2];
+  if (side === 'T') return [x+CELL/2, y]; return [x+CELL/2, y+CELL];
+}
+function seg(a, b, col, w){ ctx.strokeStyle = col; ctx.lineWidth = w||3; ctx.beginPath(); ctx.moveTo(a[0],a[1]); ctx.lineTo(b[0],b[1]); ctx.stroke(); }
+function draw(){
+  ctx.clearRect(0,0,W,H);
+  for (let r=0;r<ROWS;r++) for (let c=0;c<COLS;c++){
+    const x = c*CELL, y = r*CELL;
+    ctx.fillStyle = ((r+c)%2) ? '#151a38' : '#131735';
+    ctx.fillRect(x, y, CELL, CELL);
+    ctx.strokeStyle = '#232a4d'; ctx.lineWidth = 1; ctx.strokeRect(x+.5, y+.5, CELL-1, CELL-1);
+  }
+  for (let r=0;r<ROWS;r++) for (let c=0;c<COLS;c++){
+    const cell = grid[r*COLS+c]; if (!cell) continue;
+    const cx = c*CELL + CELL/2, cy = r*CELL + CELL/2;
+    if (cell.k === 'wall'){
+      ctx.fillStyle = '#0a0d20'; ctx.fillRect(c*CELL+3, r*CELL+3, CELL-6, CELL-6); continue;
+    }
+    if (cell.k === 'wire'){
+      ctx.strokeStyle = '#5f74ad'; ctx.lineWidth = 4; ctx.lineCap = 'round';
+      ctx.beginPath(); ctx.moveTo(cx-CELL/2, cy); ctx.lineTo(cx+CELL/2, cy);
+      ctx.moveTo(cx, cy-CELL/2); ctx.lineTo(cx, cy+CELL/2); ctx.stroke();
+      ctx.fillStyle = '#7e93cf'; ctx.beginPath(); ctx.arc(cx, cy, 3.5, 0, 7); ctx.fill(); continue;
+    }
+    if (cell.k === 'res'){
+      const a = cell.dir === 0 ? pt(r,c,'L') : pt(r,c,'T');
+      const b = cell.dir === 0 ? pt(r,c,'R') : pt(r,c,'D');
+      seg(a, [cx,cy], '#5f74ad', 3); seg([cx,cy], b, '#5f74ad', 3);
+      const w = cell.dir === 0 ? 26 : 18, h = cell.dir === 0 ? 15 : 26;
+      ctx.fillStyle = '#8b5a2b'; ctx.fillRect(cx-w/2, cy-h/2, w, h);
+      ctx.strokeStyle = '#e0a458'; ctx.lineWidth = 2; ctx.strokeRect(cx-w/2, cy-h/2, w, h);
+      ctx.fillStyle = '#ffe0b0'; ctx.font = '11px "Microsoft YaHei"'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText(cell.R + 'Ω', cx, cy); continue;
+    }
+    if (cell.k === 'lamp'){
+      const a = cell.dir === 0 ? pt(r,c,'L') : pt(r,c,'T');
+      const b = cell.dir === 0 ? pt(r,c,'R') : pt(r,c,'D');
+      seg(a, [cx,cy], '#5f74ad', 3); seg([cx,cy], b, '#5f74ad', 3);
+      if (glow > 0.01){ ctx.fillStyle = 'rgba(255,209,102,' + (0.35*glow) + ')'; ctx.beginPath(); ctx.arc(cx, cy, 22, 0, 7); ctx.fill(); }
+      ctx.fillStyle = glow > 0.01 ? '#ffd166' : '#2b3358';
+      ctx.beginPath(); ctx.arc(cx, cy, 11, 0, 7); ctx.fill();
+      ctx.strokeStyle = glow > 0.01 ? '#fff3cf' : '#6a7bb0'; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(cx-6, cy-6); ctx.lineTo(cx+6, cy+6); ctx.moveTo(cx+6, cy-6); ctx.lineTo(cx-6, cy+6); ctx.stroke();
+      ctx.fillStyle = '#8fa3c8'; ctx.font = '10px "Microsoft YaHei"'; ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+      ctx.fillText('20Ω', cx, cy+13); continue;
+    }
+    if (cell.k === 'src'){
+      const a = pt(r,c,'L'), b = pt(r,c,'R');
+      seg([cx,cy], a, '#7ee8b0', 3); seg([cx,cy], b, '#ff6d8a', 3);
+      ctx.fillStyle = '#0f1a2e'; ctx.strokeStyle = '#cfe0ff'; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.rect(cx-15, cy-10, 30, 20); ctx.fill(); ctx.stroke();
+      ctx.strokeStyle = '#7ee8b0'; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(cx-7, cy-9); ctx.lineTo(cx-7, cy+9); ctx.stroke();
+      ctx.strokeStyle = '#ff6d8a'; ctx.lineWidth = 4; ctx.beginPath(); ctx.moveTo(cx+8, cy-6); ctx.lineTo(cx+8, cy+6); ctx.stroke();
+      ctx.fillStyle = '#8fa3c8'; ctx.font = '10px "Microsoft YaHei"'; ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+      ctx.fillText('12V', cx, cy+12);
+    }
+  }
+}
+loadLevel(0);
+
+/* 供自动化校验调用 */
+window.CIRCUIT = {
+  LEVELS, loadLevel, solve,
+  apply(list){
+    list.forEach(([r,c,k,R,dir]) => { grid[r*COLS+c] = (k === 'wire') ? {k:'wire'} : {k, R:R||RL, dir:dir||0}; });
+    return solve();
+  }
+};
+</script>
+</body>
+</html>

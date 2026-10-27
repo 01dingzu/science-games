@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>蒸汽机调度 · 卡诺效率与锅炉</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; user-select:none; }
+  body { background:#0d1026; color:#e8ecf5; font-family:"Microsoft YaHei",sans-serif; display:flex; flex-direction:column; align-items:center; min-height:100vh; padding:16px; }
+  h1 { font-size:21px; margin-bottom:2px; }
+  .sub { color:#8fa3c8; font-size:13px; margin-bottom:10px; text-align:center; }
+  canvas { background:#131838; border-radius:12px; display:block; margin-top:2px; }
+  #hud { display:flex; gap:12px; font-size:13px; margin-top:10px; flex-wrap:wrap; justify-content:center; }
+  #hud b { color:#ffd166; } #hud .dim { color:#9db2d0; }
+  .panel { background:#151a35; border:1px solid #2a3460; border-radius:12px; padding:12px 14px; margin-top:10px; width:420px; max-width:96vw; }
+  .row { display:flex; align-items:center; gap:10px; margin-bottom:9px; font-size:13px; }
+  .row label { width:88px; color:#9db2d0; flex:none; }
+  .row input[type=range] { flex:1; accent-color:#ffd166; }
+  .row .val { width:96px; text-align:right; color:#e8ecf5; font-variant-numeric:tabular-nums; }
+  .row.warn .val { color:#ff6d8a; }
+  #need { font-size:12px; color:#8fa3c8; margin-top:2px; line-height:1.7; }
+  #need b { color:#7ee8fa; }
+  #btns { margin-top:10px; display:flex; gap:8px; flex-wrap:wrap; justify-content:center; }
+  button { background:#2a3468; color:#fff; border:none; padding:9px 16px; border-radius:8px; font-size:14px; cursor:pointer; }
+  button:hover { background:#36447f; }
+  button.go { background:#c9962a; color:#1b1b1b; font-weight:bold; }
+  button.go:hover { background:#e0a838; }
+  #msg { min-height:22px; margin-top:9px; font-size:14px; font-weight:bold; color:#7ee8fa; text-align:center; max-width:470px; line-height:1.6; }
+  .tip { color:#8fa3c8; font-size:12px; margin-top:10px; max-width:480px; text-align:center; line-height:1.7; }
+  #curve { display:flex; gap:4px; margin-top:12px; align-items:flex-end; height:28px; }
+  #curve i { display:block; width:18px; background:#2a3468; border-radius:2px 2px 0 0; }
+  #curve i.done { background:#3f8f74; }
+  #curve i.cur { background:#ffd166; }
+  #log { font-size:12px; color:#8fa3c8; margin-top:8px; max-height:104px; overflow:auto; width:420px; max-width:96vw; line-height:1.7; }
+  #log div { border-bottom:1px solid #222a4a; padding:2px 0; }
+</style>
+<script src="hub.js"></script>
+<script src="stories.js"></script>
+</head>
+<body>
+<h1>🔥 蒸汽机调度</h1>
+<div class="sub">锅炉烧多热、冷凝器压多冷，决定你能从一吨煤里榨出多少功 —— 热机的效率有上限</div>
+<canvas id="cv" width="420" height="230"></canvas>
+<div id="hud">
+  <span>第 <b id="rd">1</b>/<span id="rt">5</span> 轮 · <span class="dim" id="lvname"></span></span>
+  <span>煤 <b id="coal">—</b> 吨</span>
+  <span>冷却水 <b id="water">—</b></span>
+  <span>卡诺上限 <b id="ec">—</b></span>
+  <span>实际效率 <b id="er">—</b></span>
+</div>
+<div class="panel">
+  <div class="row" id="rowTh">
+    <label>锅炉温度</label>
+    <input type="range" id="th" min="500" max="1200" step="20" value="600">
+    <span class="val" id="thv">600 K</span>
+  </div>
+  <div class="row" id="rowTc">
+    <label>冷凝温度</label>
+    <input type="range" id="tc" min="280" max="380" step="5" value="300">
+    <span class="val" id="tcv">300 K</span>
+  </div>
+  <div id="need"></div>
+</div>
+<div id="btns">
+  <button class="go" onclick="run()">▶ 运行本轮</button>
+  <button onclick="loadLevel(level)">↺ 重来本关</button>
+</div>
+<div id="msg"></div>
+<div id="log"></div>
+<div id="curve"></div>
+<div class="tip">卡诺定理：效率上限 η = 1 − T冷/T热（必须用开尔文）。真实机器只能做到这个上限的六成左右。<br>
+想更省煤，要么把锅炉烧得更热，要么把冷凝器压得更冷 —— 但锅炉有压力极限，冷却水也不白给。</div>
+<script>
+"use strict";
+const cv = document.getElementById('cv'), ctx = cv.getContext('2d');
+const Q = 25;          // 每吨煤放出 25 单位热量
+const REAL = 0.6;      // 真实机器只能达到卡诺上限的六成
+const TH_MIN = 500, TH_MAX = 1200;
+
+/* 关卡：点火 → 冷凝器 → 需求尖峰+热惯性 → 喘息 → 锅炉压力（爆管） → 终局 */
+const LEVELS = [
+  { name:'点火', hint:'先随便跑一轮看看：拖动锅炉温度，注意卡诺上限和实际效率怎么变。',
+    rounds:[100,100,100,100,100], coal:250, water:0, inertia:999, burst:0 },
+
+  { name:'接上冷凝器', hint:'新机制：冷却水。把冷凝器压到 300K 以下也能提效 —— 但水只够用几轮，挑尖峰用。',
+    rounds:[120,120,120,120,120], coal:95, water:34, inertia:999, burst:0 },
+
+  { name:'需求尖峰', hint:'新机制：锅炉有热惯性，每轮最多升降 120K。第 3 轮要 240，你得提前两三轮就开始升温。',
+    rounds:[100,100,240,100,120], coal:105, water:20, inertia:120, burst:0 },
+
+  { name:'喘息 · 阴雨天', hint:'订单降下来了，煤和水都管够。试一试把锅炉推到极限看效率能到多少。',
+    rounds:[80,80,80,80,80], coal:170, water:60, inertia:999, burst:0 },
+
+  { name:'锅炉压力', hint:'新机制：超过 950K 就有爆管风险，超得越多概率越高。高效与安全，自己掂量。',
+    rounds:[150,150,150,150,150], coal:112, water:26, inertia:140, burst:950 },
+
+  { name:'终局 · 寒冬电网', hint:'六轮硬仗：尖峰要提前升温，水要用在刀刃上，锅炉压着 950K 的红线跑。',
+    rounds:[120,180,260,140,200,160], coal:145, water:30, inertia:140, burst:950 },
+];
+const DIFF = [1,2,3,1,4,5];
+
+let level = 0, round = 0, coal = 0, water = 0, th = 600, tc = 300, spin = 0, over = false;
+
+function L(){ return LEVELS[level]; }
+function etaCarnot(){ return 1 - tc/th; }
+function etaReal(){ return REAL * etaCarnot(); }
+function waterUse(){ return Math.max(0, 300 - tc) * 0.5; }   // 每低 1K 每轮多用 0.5 水
+function coalFor(D){ return D / (etaReal() * Q); }
+
+function loadLevel(i){
+  level = Math.max(0, Math.min(LEVELS.length-1, i));
+  const l = L();
+  round = 0; coal = l.coal; water = l.water; th = 600; tc = 300; over = false;
+  document.getElementById('lvname').textContent = l.name;
+  document.getElementById('rt').textContent = l.rounds.length;
+  document.getElementById('log').innerHTML = '';
+  document.getElementById('msg').textContent = l.hint;
+  document.getElementById('th').value = th;
+  document.getElementById('tc').value = tc;
+  clampInputs(); renderCurve(); update(); draw();
+}
+function clampInputs(){
+  const l = L();
+  const thS = document.getElementById('th'), tcS = document.getElementById('tc');
+  const lo = Math.max(TH_MIN, th - l.inertia), hi = Math.min(TH_MAX, th + l.inertia);
+  thS.min = lo; thS.max = hi; thS.value = Math.max(lo, Math.min(hi, +thS.value));
+  th = +thS.value;
+  const tcLo = water > 0 ? Math.max(280, 300 - water*2) : 300;
+  tcS.min = tcLo; tcS.max = 380; tcS.disabled = (l.water === 0);
+  tcS.value = Math.max(tcLo, Math.min(380, +tcS.value));
+  tc = +tcS.value;
+}
+function renderCurve(){
+  const el = document.getElementById('curve'); el.innerHTML = '';
+  DIFF.forEach((d, i) => {
+    const b = document.createElement('i');
+    b.style.height = (6 + d*5) + 'px';
+    if (i < level) b.className = 'done'; else if (i === level) b.className = 'cur';
+    b.title = '第 ' + (i+1) + ' 关';
+    el.appendChild(b);
+  });
+}
+function burstRisk(){
+  const l = L();
+  if (!l.burst || th <= l.burst) return 0;
+  return Math.min(0.45, (th - l.burst)/100 * 0.08);
+}
+function update(){
+  const l = L();
+  const D = l.rounds[Math.min(round, l.rounds.length-1)];
+  document.getElementById('rd').textContent = Math.min(round+1, l.rounds.length);
+  document.getElementById('coal').textContent = coal.toFixed(1);
+  document.getElementById('water').textContent = (l.water === 0 ? '无冷凝器' : water.toFixed(1));
+  document.getElementById('ec').textContent = (etaCarnot()*100).toFixed(1) + '%';
+  document.getElementById('er').textContent = (etaReal()*100).toFixed(1) + '%';
+  document.getElementById('thv').textContent = th + ' K';
+  document.getElementById('tcv').textContent = (l.water === 0 ? '固定 300 K' : tc + ' K');
+  const need = over ? 0 : coalFor(D), wu = waterUse();
+  const rk = burstRisk();
+  const rowTh = document.getElementById('rowTh');
+  rowTh.className = 'row' + (rk > 0 ? ' warn' : '');
+  let s = '本轮订单 <b>' + D + '</b> 功　预计耗煤 <b>' + need.toFixed(1) + '</b> 吨' +
+          (wu > 0 ? '　耗水 <b>' + wu.toFixed(1) + '</b>' : '');
+  if (rk > 0) s += '　⚠ 爆管风险 <b style="color:#ff6d8a">' + (rk*100).toFixed(0) + '%</b>';
+  const fut = l.rounds.slice(round+1, round+3);
+  if (fut.length) s += '<br>后续订单：' + fut.join(' / ') + '（锅炉每轮最多升降 ' + l.inertia + 'K）';
+  document.getElementById('need').innerHTML = s;
+}
+function log(txt){
+  const el = document.getElementById('log');
+  const d = document.createElement('div'); d.textContent = txt;
+  el.insertBefore(d, el.firstChild);
+}
+function run(){
+  if (over) return;
+  const l = L(), D = l.rounds[round];
+  const need = coalFor(D), wu = waterUse();
+  if (wu > water + 1e-9){ document.getElementById('msg').textContent = '💧 冷却水不够这么压 —— 把冷凝温度调高点。'; return; }
+  if (need > coal + 1e-9){
+    over = true;
+    document.getElementById('msg').textContent = '❌ 煤不够了：本轮要 ' + need.toFixed(1) + ' 吨，只剩 ' + coal.toFixed(1) + ' 吨。';
+    setTimeout(() => hub.finish({ win:false, title:'😵 锅炉断供',
+      text:'效率太低，煤烧不起。把锅炉烧热一点或把冷凝器压冷一点，同样的煤就能榨出更多功。',
+      stat:'第 ' + (level+1) + ' 关 · 第 ' + (round+1) + ' 轮 · 差 ' + (need-coal).toFixed(1) + ' 吨煤' }), 1000);
+    return;
+  }
+  coal -= need; water -= wu;
+  const rk = burstRisk();
+  spin += 1.2;
+  log('第 ' + (round+1) + ' 轮：订单 ' + D + '，效率 ' + (etaReal()*100).toFixed(1) + '%，耗煤 ' + need.toFixed(1) + ' 吨' + (wu>0 ? '，耗水 ' + wu.toFixed(1) : ''));
+  if (rk > 0 && Math.random() < rk){
+    over = true;
+    document.getElementById('msg').textContent = '💥 锅炉爆管！';
+    setTimeout(() => hub.finish({ win:false, title:'💥 锅炉爆管',
+      text:'压力越高效率越高，但钢材有极限。真实的锅炉靠安全阀和压力表守着这条线——你今天没守住。',
+      stat:'第 ' + (level+1) + ' 关 · 第 ' + (round+1) + ' 轮 · ' + th + 'K' }), 1000);
+    return;
+  }
+  round++;
+  if (round >= l.rounds.length){
+    over = true;
+    const left = coal / l.coal;
+    const star = left > 0.20 ? '★★★' : (left > 0.10 ? '★★☆' : '★☆☆');
+    document.getElementById('msg').textContent = '✨ 全部订单交付！剩煤 ' + coal.toFixed(1) + ' 吨（' + (left*100).toFixed(0) + '%）　' + star;
+    if (level === LEVELS.length - 1){
+      setTimeout(() => hub.finish({ win:true, title:'🎆 六关全通！',
+        text:'你已经把卡诺定理用成了调度策略：提前升温、冷水用在尖峰、压着锅炉红线跑。两百年前的人就是这么一点一点把效率从 1% 抠到 20% 的。',
+        stat:'终局剩煤 ' + coal.toFixed(1) + ' 吨 · ' + star }), 1300);
+    } else {
+      setTimeout(() => loadLevel(level+1), 1300);
+    }
+    return;
+  }
+  document.getElementById('msg').textContent = '✅ 交付成功，剩煤 ' + coal.toFixed(1) + ' 吨。下一轮订单 ' + l.rounds[round];
+  clampInputs(); update(); draw();
+}
+
+/* ---------- 绘制 ---------- */
+let t0 = 0;
+function draw(){
+  const W = cv.width, H = cv.height;
+  ctx.clearRect(0,0,W,H);
+  // 热源
+  const hotT = (th - TH_MIN) / (TH_MAX - TH_MIN);
+  const hg = ctx.createLinearGradient(0, 18, 0, 72);
+  hg.addColorStop(0, 'hsl(' + (42 - 30*hotT) + ',95%,' + (42 + 22*hotT) + '%)');
+  hg.addColorStop(1, 'hsl(' + (18 - 12*hotT) + ',90%,' + (34 + 18*hotT) + '%)');
+  ctx.fillStyle = hg; ctx.fillRect(40, 18, 340, 54);
+  ctx.fillStyle = '#1b1b1b'; ctx.font = 'bold 15px "Microsoft YaHei"'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText('锅炉  ' + th + ' K', 210, 45);
+  // 冷源
+  const coldT = Math.max(0, (380 - tc) / 100);
+  ctx.fillStyle = 'hsl(205,70%,' + (26 + 16*coldT) + '%)'; ctx.fillRect(40, 172, 340, 48);
+  ctx.fillStyle = '#eaf4ff'; ctx.font = 'bold 15px "Microsoft YaHei"';
+  ctx.fillText('冷凝器  ' + tc + ' K', 210, 196);
+  // 中间：飞轮
+  const cy = 115, r = 42;
+  ctx.save(); ctx.translate(210, cy); ctx.rotate(spin);
+  ctx.strokeStyle = '#8fa3c8'; ctx.lineWidth = 4; ctx.beginPath(); ctx.arc(0,0,r,0,7); ctx.stroke();
+  ctx.strokeStyle = '#5f74ad'; ctx.lineWidth = 3;
+  for (let i=0;i<6;i++){ const a = i*Math.PI/3; ctx.beginPath(); ctx.moveTo(0,0); ctx.lineTo(Math.cos(a)*r, Math.sin(a)*r); ctx.stroke(); }
+  ctx.fillStyle = '#ffd166'; ctx.beginPath(); ctx.arc(0,0,7,0,7); ctx.fill();
+  ctx.restore();
+  // 效率条
+  const bw = 340, bx = 40, by = 232 - 0;
+  ctx.fillStyle = '#232a4d'; ctx.fillRect(bx, 226, bw, 8);
+  ctx.fillStyle = '#3f8f74'; ctx.fillRect(bx, 226, bw*etaCarnot(), 8);
+  ctx.fillStyle = '#ffd166'; ctx.fillRect(bx, 226, bw*etaReal(), 8);
+  ctx.fillStyle = '#8fa3c8'; ctx.font = '11px "Microsoft YaHei"'; ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+  ctx.fillText('卡诺上限 ' + (etaCarnot()*100).toFixed(0) + '%　实际 ' + (etaReal()*100).toFixed(0) + '%', bx, 212);
+  // 风险标记
+  const rk = burstRisk();
+  if (rk > 0){
+    ctx.fillStyle = '#ff6d8a'; ctx.font = 'bold 12px "Microsoft YaHei"'; ctx.textAlign = 'right'; ctx.textBaseline = 'top';
+    ctx.fillText('⚠ 超压 ' + (rk*100).toFixed(0) + '%', 380, 212);
+  }
+  // 热量箭头
+  ctx.strokeStyle = 'rgba(255,140,80,.75)'; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(80, 72); ctx.lineTo(80, 90); ctx.stroke();
+  ctx.strokeStyle = 'rgba(120,190,255,.75)';
+  ctx.beginPath(); ctx.moveTo(340, 140); ctx.lineTo(340, 172); ctx.stroke();
+}
+function loop(ts){
+  if (!t0) t0 = ts;
+  if (ts - t0 > 40){ spin += 0.06; t0 = ts; draw(); }
+  requestAnimationFrame(loop);
+}
+document.getElementById('th').addEventListener('input', e => { th = +e.target.value; update(); draw(); });
+document.getElementById('tc').addEventListener('input', e => { tc = +e.target.value; update(); draw(); });
+loadLevel(0);
+requestAnimationFrame(loop);
+
+window.STEAM = { LEVELS, DIFF, loadLevel, etaCarnot, etaReal, coalFor, waterUse,
+  set(l){ th = l.th; tc = l.tc; }, state(){ return { coal, water, round, th, tc }; } };
+</script>
+</body>
+</html>

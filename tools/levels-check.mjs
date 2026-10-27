@@ -155,4 +155,73 @@ await check('线粒体经理：阶段目标递增', async logs => {
   for (let i = 1; i < arr.length; i++) if (arr[i] <= arr[i-1]) throw new Error('未递增: ' + sgoals);
   logs.push('各阶段目标: ' + sgoals);
 });
+/* 14-circuit / 15-steam：关卡设计解与预算的静态校验（不用浏览器，直接跑页面里的纯逻辑） */
+{
+  const seg = (s, a, b) => { const i = s.indexOf(a), j = s.indexOf(b); return (i < 0 || j < 0) ? null : s.slice(i, j); };
+  const lastScript = f => { const m = [...readFileSync(join(DIR, f), 'utf8').matchAll(/<script>([\s\S]*?)<\/script>/g)]; return m[m.length - 1][1]; };
+
+  const code14 = seg(lastScript('14-circuit.html'), 'const ROWS', '/* ---------- 关卡装载');
+  await check('电路迷宫：6 关设计解可通 + 短路/断路检出', async logs => {
+    if (!code14) throw new Error('代码段提取失败（注释锚点变了？）');
+    const api = new Function(code14 + '\nreturn {LEVELS, DIFF, solve, setGrid(g){grid=g;}};')();
+    const { LEVELS, DIFF, solve, setGrid } = api;
+    if (DIFF.length !== LEVELS.length) throw new Error('DIFF 长度 ' + DIFF.length + ' ≠ 关卡数 ' + LEVELS.length);
+    const COLS = 6;
+    LEVELS.forEach((L, li) => {
+      const g = new Array(36).fill(null);
+      g[2 * COLS + 1] = { k: 'src', dir: 0 };
+      L.lamps.forEach(([r, c]) => { g[r * COLS + c] = { k: 'lamp', dir: 0, R: 20 }; });
+      (L.walls || []).forEach(([r, c]) => { g[r * COLS + c] = { k: 'wall' }; });
+      L.sol.forEach(([r, c, k, R, dir]) => { g[r * COLS + c] = k === 'wire' ? { k: 'wire' } : { k, R, dir: dir || 0 }; });
+      setGrid(g);
+      const r = solve();
+      const pmax = r.P && r.P.length ? Math.max.apply(null, r.P) : 0;
+      const pmin = r.P && r.P.length ? Math.min.apply(null, r.P) : 0;
+      if (r.short) throw new Error('L' + (li + 1) + ' 设计解短路');
+      if (r.open || pmax <= 0) throw new Error('L' + (li + 1) + ' 设计解断路');
+      if (!(pmax >= L.lo && pmax <= L.hi)) throw new Error('L' + (li + 1) + ' 功率 ' + pmax.toFixed(2) + 'W 不在 [' + L.lo + ',' + L.hi + ']');
+      if (pmin < L.lo * 0.85) throw new Error('L' + (li + 1) + ' 有灯泡被旁路 P=' + pmin.toFixed(2) + 'W');
+      if (r.I > L.imax + 1e-9) throw new Error('L' + (li + 1) + ' 超保险丝 ' + r.I.toFixed(3) + 'A');
+    });
+    const g2 = new Array(36).fill(null);
+    g2[2 * COLS + 1] = { k: 'src', dir: 0 };
+    g2[2 * COLS + 0] = { k: 'wire' }; g2[3 * COLS + 0] = { k: 'wire' };
+    g2[3 * COLS + 1] = { k: 'wire' }; g2[3 * COLS + 2] = { k: 'wire' }; g2[2 * COLS + 2] = { k: 'wire' };
+    setGrid(g2);
+    if (!solve().short) throw new Error('导线直连电池两端 = 短路，未检出');
+    const g3 = new Array(36).fill(null);
+    g3[2 * COLS + 1] = { k: 'src', dir: 0 }; g3[2 * COLS + 2] = { k: 'lamp', dir: 0, R: 20 };
+    setGrid(g3);
+    if (!solve().open) throw new Error('回路没闭合 = 断路，未检出');
+    logs.push('6 关设计解全部可通 · 短路/断路检出 OK');
+  });
+
+  const code15 = seg(lastScript('15-steam.html'), 'const Q = 25;', '/* ---------- 绘制');
+  await check('蒸汽机调度：6 关煤/水预算可完成', async logs => {
+    if (!code15) throw new Error('代码段提取失败（注释锚点变了？）');
+    const api = new Function(code15 + '\nreturn {LEVELS, DIFF, coalFor, etaCarnot, etaReal};')();
+    const { LEVELS, DIFF, coalFor } = api;
+    if (DIFF.length !== LEVELS.length) throw new Error('DIFF 长度 ' + DIFF.length + ' ≠ 关卡数 ' + LEVELS.length);
+    LEVELS.forEach((l, li) => {
+      const n = l.rounds.length;
+      const cap = l.burst ? l.burst - 20 : 1200;      // 贪心策略：压着安全线升温
+      let thv = 600; const ths = [];
+      for (let k = 0; k < n; k++) { ths.push(thv); thv = Math.min(cap, thv + l.inertia); }
+      const order = l.rounds.map((d, k) => k).sort((a, b) => l.rounds[b] - l.rounds[a]);
+      const tcs = new Array(n).fill(300);             // 冷却水优先给尖峰轮
+      let w = l.water;
+      for (const k of order) {
+        while (w >= 0.5 && tcs[k] > 280) { tcs[k] -= 1; w -= 0.5; }
+        if (w < 0.5) break;
+      }
+      let used = 0;
+      for (let k = 0; k < n; k++) {
+        used += l.rounds[k] / ((0.6 * (1 - tcs[k] / ths[k])) * 25);
+      }
+      if (used > l.coal) throw new Error('L' + (li + 1) + ' 煤预算不够：最优策略需 ' + used.toFixed(1) + ' > ' + l.coal);
+      if (used > l.coal * 0.95) throw new Error('L' + (li + 1) + ' 余量不足 5%，太苛刻');
+      logs.push('L' + (li + 1) + ' ' + l.name + '：耗煤 ' + used.toFixed(1) + '/' + l.coal + '（余 ' + ((l.coal - used) / l.coal * 100).toFixed(0) + '%）');
+    });
+  });
+}
 finish();

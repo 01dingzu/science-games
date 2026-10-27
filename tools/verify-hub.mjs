@@ -104,6 +104,8 @@ const GAMES = [
   ['1-fusion', '元素炼金塔'], ['2-valence', '化学反应连连杀'], ['3-bacteria', '细菌帝国'],
   ['4-mito', '线粒体经理'], ['5-bridge', '桥梁工程师'], ['6-factory', '万物工厂'],
   ['7-optics', '光的迷宫'], ['8-vaccine', '疫苗工厂'], ['9-fission', '分子弹球'], ['10-chip', '半导体小镇'],
+  ['11-needle', '蒲丰投针'], ['12-bridges', '七桥一笔画'], ['13-sieve', '素数筛'],
+  ['14-circuit', '电路迷宫'], ['15-steam', '蒸汽机调度'],
 ];
 
 // 先清空通关记录
@@ -153,12 +155,17 @@ for (const [file, name] of GAMES) {
       if (typeof href === 'string' && /index\.html/.test(href)) { ok = true; break; }
     }
     if (!ok) throw new Error('点击返回后没跳到 index.html，当前 ' + await evaluate('location.href'));
-    await sleep(300);
-    const badge = await evaluate(`JSON.stringify({
-      cleared: document.querySelectorAll('a.card.cleared').length,
-      txt: document.getElementById('progtxt').textContent
-    })`);
-    const b = JSON.parse(badge);
+    // 轮询等聚合页渲染完（首次加载 index.html 可能要几百毫秒）
+    let badgeRaw = null;
+    for (let i = 0; i < 20; i++) {
+      await sleep(200);
+      badgeRaw = await evaluate(`JSON.stringify({
+        cleared: document.querySelectorAll('a.card.cleared').length,
+        txt: document.getElementById('progtxt').textContent
+      })`);
+      if (JSON.parse(badgeRaw).cleared >= 1) break;
+    }
+    const b = JSON.parse(badgeRaw);
     if (b.cleared < 1) throw new Error('聚合页没显示已通关徽章');
     logs.push('跳回聚合页 OK，' + b.txt + '，徽章 ' + b.cleared + ' 个');
   } catch (e) {
@@ -172,6 +179,6 @@ for (const [file, name] of GAMES) {
 await nav('index');
 await evaluate(`document.getElementById('reset').click()`);
 const after = await evaluate(`document.getElementById('progtxt').textContent`);
-results.push({ name: 'index 清除记录', status: String(after).includes('0/10') ? 'PASS' : 'FAIL', logs: ['清除后: ' + after] });
+results.push({ name: 'index 清除记录', status: /0\/\d+/.test(String(after)) ? 'PASS' : 'FAIL', logs: ['清除后: ' + after] });
 
 finish();

@@ -354,9 +354,39 @@ await test('13-sieve 素数筛', '13-sieve', async logs => {
   logs.push('1-30 筛完 OK');
 });
 
+await test('14-circuit 电路迷宫', '14-circuit', async logs => {
+  const r1 = await evaluate('(() => { CIRCUIT.loadLevel(0); const s = CIRCUIT.apply(CIRCUIT.LEVELS[0].sol); return JSON.stringify(s); })()');
+  const a = JSON.parse(r1);
+  if (a.short || a.open) throw new Error('L1 设计解不通 ' + r1);
+  if (Math.abs(a.P[0] - 7.2) > 0.05) throw new Error('L1 功率应为 7.2W，实际 ' + a.P[0]);
+  await evaluate('fire()');
+  const m1 = await evaluate('document.getElementById("msg").textContent');
+  if (!String(m1).includes('✨')) throw new Error('L1 通电未通过 msg=' + m1);
+  // 并联关：两个 20Ω 并联 = 10Ω
+  const r3 = await evaluate('(() => { CIRCUIT.loadLevel(2); const s = CIRCUIT.apply(CIRCUIT.LEVELS[2].sol); return JSON.stringify(s); })()');
+  const b = JSON.parse(r3);
+  if (Math.abs(b.Req - 30) > 0.5) throw new Error('L3 等效电阻应为 30Ω，实际 ' + b.Req);
+  // 短路：导线把电池两头直连
+  const rs = await evaluate('(() => { CIRCUIT.loadLevel(0); const s = CIRCUIT.apply([[2,3,"wire"],[2,0,"wire"],[3,0,"wire"],[3,1,"wire"],[3,2,"wire"],[3,3,"wire"],[2,2,"wire"]]); return JSON.stringify(s); })()');
+  if (!JSON.parse(rs).short) throw new Error('短路未被检出 ' + rs);
+  logs.push('L1 7.2W / L3 并联 30Ω / 短路检出 OK');
+});
+
+await test('15-steam 蒸汽机调度', '15-steam', async logs => {
+  const e = await evaluate('(() => { const s=document.getElementById("th"); s.value=1100; s.dispatchEvent(new Event("input")); return STEAM.etaCarnot().toFixed(3); })()');
+  if (Math.abs(+e - 0.727) > 0.01) throw new Error('1100K/300K 卡诺效率应为 0.727，实际 ' + e);
+  for (let i = 0; i < 5; i++) {
+    await evaluate('(() => { const s=document.getElementById("th"); s.value=1100; s.dispatchEvent(new Event("input")); run(); })()');
+  }
+  const m = await evaluate('document.getElementById("msg").textContent');
+  if (!String(m).includes('✨')) throw new Error('五轮没跑完 msg=' + m);
+  const st = await evaluate('JSON.stringify(STEAM.state())');
+  logs.push('卡诺 ' + e + ' · 五轮交付 OK · ' + st);
+});
+
 await test('lore 史实图鉴', 'lore', async logs => {
   const total = await evaluate('document.querySelectorAll("#list .item").length');
-  if (total !== 39) throw new Error('图鉴条目数 = ' + total + '，期望 39');
+  if (total !== 45) throw new Error('图鉴条目数 = ' + total + '，期望 45');
   const txt = await evaluate('document.getElementById("ptxt").textContent');
   logs.push('图鉴 ' + total + ' 条 · ' + txt);
 });
@@ -376,15 +406,15 @@ await test('stories 史实解锁 + 结算卡', '11-needle', async logs => {
 {
   const fsm = await import('node:fs');
   const ids = ['1-fusion','2-valence','3-bacteria','4-mito','5-bridge','6-factory','7-optics',
-               '8-vaccine','9-fission','10-chip','11-needle','12-bridges','13-sieve'];
+               '8-vaccine','9-fission','10-chip','11-needle','12-bridges','13-sieve','14-circuit','15-steam'];
   const bad = ids.filter(f => {
     const s = fsm.readFileSync(DIR + '/' + f + '.html', 'utf8');
     return !(s.includes('hub.js') && s.includes('stories.js') && s.includes('hub.finish') && s.includes('DIFF'));
   });
   results.push({
-    name: '接线检查：13 个游戏都接了 hub / stories / 难度曲线',
+    name: '接线检查：15 个游戏都接了 hub / stories / 难度曲线',
     status: bad.length ? 'FAIL' : 'PASS',
-    logs: bad.length ? ['缺件: ' + bad.join(', ')] : ['13 个游戏全部含 hub.js + stories.js + hub.finish + DIFF']
+    logs: bad.length ? ['缺件: ' + bad.join(', ')] : ['15 个游戏全部含 hub.js + stories.js + hub.finish + DIFF']
   });
 }
 
