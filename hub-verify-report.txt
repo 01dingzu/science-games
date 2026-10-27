@@ -2,54 +2,54 @@
 [PASS] 1-fusion 元素炼金塔
   - hub 已加载 id=1-fusion，返回条 href=index.html
   - 通关面板弹出 OK
-  - 跳回聚合页 OK，已通关 1/10，徽章 1 个
+  - 跳回聚合页 OK，已通关 1/13，徽章 1 个
 
 [PASS] 2-valence 化学反应连连杀
   - hub 已加载 id=2-valence，返回条 href=index.html
   - 通关面板弹出 OK
-  - 跳回聚合页 OK，已通关 2/10，徽章 2 个
+  - 跳回聚合页 OK，已通关 2/13，徽章 2 个
 
 [PASS] 3-bacteria 细菌帝国
   - hub 已加载 id=3-bacteria，返回条 href=index.html
   - 通关面板弹出 OK
-  - 跳回聚合页 OK，已通关 3/10，徽章 3 个
+  - 跳回聚合页 OK，已通关 3/13，徽章 3 个
 
 [PASS] 4-mito 线粒体经理
   - hub 已加载 id=4-mito，返回条 href=index.html
   - 通关面板弹出 OK
-  - 跳回聚合页 OK，已通关 4/10，徽章 4 个
+  - 跳回聚合页 OK，已通关 4/13，徽章 4 个
 
 [PASS] 5-bridge 桥梁工程师
   - hub 已加载 id=5-bridge，返回条 href=index.html
   - 通关面板弹出 OK
-  - 跳回聚合页 OK，已通关 5/10，徽章 5 个
+  - 跳回聚合页 OK，已通关 5/13，徽章 5 个
 
 [PASS] 6-factory 万物工厂
   - hub 已加载 id=6-factory，返回条 href=index.html
   - 通关面板弹出 OK
-  - 跳回聚合页 OK，已通关 6/10，徽章 6 个
+  - 跳回聚合页 OK，已通关 6/13，徽章 6 个
 
 [PASS] 7-optics 光的迷宫
   - hub 已加载 id=7-optics，返回条 href=index.html
   - 通关面板弹出 OK
-  - 跳回聚合页 OK，已通关 7/10，徽章 7 个
+  - 跳回聚合页 OK，已通关 7/13，徽章 7 个
 
 [PASS] 8-vaccine 疫苗工厂
   - hub 已加载 id=8-vaccine，返回条 href=index.html
   - 通关面板弹出 OK
-  - 跳回聚合页 OK，已通关 8/10，徽章 8 个
+  - 跳回聚合页 OK，已通关 8/13，徽章 8 个
 
 [PASS] 9-fission 分子弹球
   - hub 已加载 id=9-fission，返回条 href=index.html
   - 通关面板弹出 OK
-  - 跳回聚合页 OK，已通关 9/10，徽章 9 个
+  - 跳回聚合页 OK，已通关 9/13，徽章 9 个
 
 [PASS] 10-chip 半导体小镇
   - hub 已加载 id=10-chip，返回条 href=index.html
   - 通关面板弹出 OK
-  - 跳回聚合页 OK，已通关 10/10，徽章 10 个
+  - 跳回聚合页 OK，已通关 10/13，徽章 10 个
 
-[PASS] index 清除记录
-  - 清除后: 已通关 0/10
+[FAIL] index 清除记录
+  - 清除后: 已通关 0/13
 
-SUMMARY: 11 pass / 0 fail
+SUMMARY: 10 pass / 1 fail

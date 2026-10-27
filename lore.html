@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>史实图鉴 · 物化生工业科普小游戏</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { background:#101828; color:#eef2f7; font-family:"Microsoft YaHei",sans-serif; padding:28px 16px 48px; }
+  .wrap { max-width:900px; margin:0 auto; }
+  h1 { font-size:24px; margin-bottom:4px; }
+  .sub { color:#8fa3c8; font-size:13px; margin-bottom:16px; line-height:1.7; }
+  #bar { display:flex; align-items:center; gap:12px; margin-bottom:20px; font-size:13px; color:#9db2d0; flex-wrap:wrap; }
+  #bar b { color:#ffd166; }
+  #pb { width:260px; max-width:50vw; height:7px; background:#1a2740; border-radius:4px; overflow:hidden; }
+  #pf { display:block; height:100%; width:0; background:#ffd166; transition:width .35s; }
+  a.link { color:#5b6f8f; font-size:12px; text-decoration:none; }
+  a.link:hover { color:#9db2d0; }
+  .sec { margin-bottom:26px; }
+  .sec h2 { font-size:16px; margin-bottom:10px; color:#ffd166; font-weight:500; }
+  .sec h2 span { font-size:12px; color:#6c7f9e; margin-left:8px; }
+  .item { background:#1a2740; border:1px solid #263a5e; border-radius:12px; padding:14px 16px; margin-bottom:10px; }
+  .item.lock { opacity:.45; }
+  .item .t { font-size:14px; font-weight:bold; color:#eef2f7; margin-bottom:6px; }
+  .item .s { font-size:13px; line-height:1.75; color:#b8c6de; }
+  .item .f { font-size:11px; color:#6c7f9e; margin-top:8px; }
+  .tag { display:inline-block; font-size:11px; padding:1px 8px; border-radius:9px; background:#2a3468; color:#9db2d0; margin-right:6px; }
+  .ok { display:inline-block; font-size:11px; padding:1px 8px; border-radius:9px; background:#24304c; color:#7f92b5; }
+  .ok.lore { background:#3d2f56; color:#c9a2ff; }
+  .hub-back { position:fixed; top:12px; right:12px; z-index:99; display:inline-flex; align-items:center;
+    background:rgba(16,22,38,.8); color:#cfe0ff; border:1px solid rgba(130,170,225,.35); padding:7px 14px;
+    border-radius:20px; font:13px/1 "Microsoft YaHei",sans-serif; text-decoration:none; }
+  .hub-back:hover { background:#26385f; color:#fff; }
+</style>
+</head>
+<body>
+<a class="hub-back" href="index.html">← 聚合页</a>
+<div class="wrap">
+  <h1>📖 史实图鉴</h1>
+  <div class="sub">每通关一个游戏，就解锁它的 3 条史实。史实与传说分开标注——传说不一定真发生过，但往往更值得玩味。</div>
+  <div id="bar">
+    <span id="ptxt">已解锁 0/0</span>
+    <div id="pb"><i id="pf"></i></div>
+    <a href="#" class="link" id="reset">清除解锁记录</a>
+  </div>
+  <div id="list"></div>
+</div>
+<script src="stories.js"></script>
+<script>
+"use strict";
+var NAME = {
+  '1-fusion':'元素炼金塔','2-valence':'化学反应连连杀','3-bacteria':'细菌帝国','4-mito':'线粒体经理',
+  '5-bridge':'桥梁工程师','6-factory':'万物工厂','7-optics':'光的迷宫','8-vaccine':'疫苗工厂',
+  '9-fission':'分子弹球','10-chip':'半导体小镇','11-needle':'蒲丰投针','12-bridges':'七桥一笔画','13-sieve':'素数筛'
+};
+var ORDER = ['物理','数学','化学','生物','工程'];
+var S = SCI.stories;
+var KEY = 'sciStoriesSeen';
+function seen(){ try { return JSON.parse(localStorage.getItem(KEY) || '{}'); } catch(e){ return {}; } }
+function render(){
+  var d = seen(), total = 0, got = 0, html = '';
+  ORDER.forEach(function(tag){
+    var rows = '';
+    Object.keys(S).forEach(function(g){
+      S[g].forEach(function(it, i){
+        if (it.tag !== tag) return;
+        total++;
+        var on = !!d[g + '#' + i];
+        if (on) got++;
+        rows += '<div class="item' + (on ? '' : ' lock') + '">' +
+          '<div class="t">' + (on ? it.t : '？？？') + '</div>' +
+          (on ? '<div class="s">' + it.s + '</div>' +
+                '<div class="f"><span class="tag">' + it.tag + '</span><span class="ok' + (it.ok === '传说' ? ' lore' : '') + '">' + it.ok + '</span> · 来自《' + (NAME[g] || g) + '》</div>'
+              : '<div class="s">通关《' + (NAME[g] || g) + '》后解锁</div>') +
+          '</div>';
+      });
+    });
+    if (rows) html += '<div class="sec"><h2>' + tag + '</h2>' + rows + '</div>';
+  });
+  document.getElementById('list').innerHTML = html;
+  document.getElementById('ptxt').textContent = '已解锁 ' + got + '/' + total;
+  document.getElementById('pf').style.width = (total ? got / total * 100 : 0) + '%';
+}
+document.getElementById('reset').onclick = function(e){
+  e.preventDefault();
+  try { localStorage.removeItem(KEY); } catch(err){}
+  render();
+};
+render();
+</script>
+</body>
+</html>

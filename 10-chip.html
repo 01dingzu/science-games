@@ -32,6 +32,7 @@
   .tip { color:#5b6b80; font-size:12px; margin-top:8px; max-width:600px; text-align:center; line-height:1.7; }
 </style>
 <script src="hub.js"></script>
+<script src="stories.js"></script>
 </head>
 <body>
 <h1>🖥️ 半导体小镇</h1>
@@ -76,6 +77,7 @@ const CHAPTERS = [
   { name:'第三章 · 设备禁运',     from:11, to:15, ms:6000,  tip:'新机制：光刻机可能被卡脖子，运营成本和升级压力上升' },
   { name:'第四章 · 制程豪赌',     from:16, to:20, ms:10000, tip:'终局：all in 先进制程，冲 ¥10,000M' },
 ];
+const DIFF = [1, 2, 3, 4];
 let cash, cap, purityLv, litLv, yldLv, nodeIdx, quarter, over;
 const fabCost = () => Math.floor(150 * Math.pow(1.6, Math.log2(cap/100)));
 const purCost = () => Math.floor(120 * Math.pow(1.8, purityLv-1));
@@ -94,10 +96,10 @@ function renderCurve(){
   const el = document.getElementById('curve');
   el.innerHTML = '';
   const cur = chapterOf(quarter);
-  [1,2,3,4].forEach(d => {
+  DIFF.forEach((d, i) => {
     const b = document.createElement('i');
     b.style.height = (6 + d*5) + 'px';
-    if (d - 1 < cur) b.className = 'done'; else if (d - 1 === cur) b.className = 'cur';
+    if (i < cur) b.className = 'done'; else if (i === cur) b.className = 'cur';
     b.title = '第 ' + d + ' 章';
     el.appendChild(b);
   });

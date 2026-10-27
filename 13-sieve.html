@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>素数筛 · 埃拉托斯特尼</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; user-select:none; }
+  body { background:#0d1026; color:#e8ecf5; font-family:"Microsoft YaHei",sans-serif; display:flex; flex-direction:column; align-items:center; min-height:100vh; padding:16px; }
+  h1 { font-size:21px; margin-bottom:2px; }
+  .sub { color:#8fa3c8; font-size:13px; margin-bottom:8px; text-align:center; }
+  #grid { display:grid; grid-template-columns:repeat(10, 1fr); gap:5px; width:440px; max-width:94vw; }
+  .cell { background:#1c2445; border:1px solid #2c3760; border-radius:7px; height:36px; display:flex; align-items:center; justify-content:center;
+          font-size:14px; cursor:pointer; transition:.12s; color:#cdd8f0; }
+  .cell:hover { background:#2b3566; }
+  .cell.off { background:#141a33; color:#4a5680; text-decoration:line-through; border-color:#202a4d; }
+  .cell.prime { background:#3d2f56; color:#ffd166; border-color:#7a5fa8; font-weight:bold; }
+  .cell.bad { background:#5b2a3c; }
+  #hud { display:flex; gap:14px; font-size:13px; margin-top:12px; flex-wrap:wrap; justify-content:center; }
+  #hud b { color:#ffd166; }
+  #hud .dim { color:#9db2d0; }
+  #msg { min-height:26px; margin-top:8px; font-size:14px; font-weight:bold; color:#7ee8fa; text-align:center; max-width:470px; }
+  #tools { margin-top:8px; display:flex; gap:8px; flex-wrap:wrap; justify-content:center; align-items:center; }
+  #tools span { color:#8fa3c8; font-size:12px; }
+  button { background:#2a3468; color:#fff; border:none; padding:8px 14px; border-radius:8px; font-size:13px; cursor:pointer; }
+  button:hover { background:#36447f; }
+  button.sv { background:#5a3f7a; }
+  button.sv:hover { background:#71509a; }
+  .tip { color:#8fa3c8; font-size:12px; margin-top:12px; max-width:480px; text-align:center; line-height:1.7; }
+  #curve { display:flex; gap:4px; margin-top:12px; align-items:flex-end; height:28px; }
+  #curve i { display:block; width:18px; background:#2a3468; border-radius:2px 2px 0 0; }
+  #curve i.done { background:#3f8f74; }
+  #curve i.cur { background:#ffd166; }
+</style>
+<script src="hub.js"></script>
+<script src="stories.js"></script>
+</head>
+<body>
+<h1>🧮 素数筛</h1>
+<div class="sub">把合数一个个划掉，剩下的就是素数——两千年没变过的方法</div>
+<div id="grid"></div>
+<div id="hud">
+  <span>第 <b id="lv">1</b>/5 关 · <span class="dim" id="lvname"></span></span>
+  <span>已划 <b id="done">0</b>/<b id="need">0</b></span>
+  <span>容错 <b id="lives">♥♥♥</b></span>
+  <span class="dim" id="clock"></span>
+</div>
+<div id="msg"></div>
+<div id="tools">
+  <span>筛法工具：</span>
+  <span id="sievep"></span>
+  <button onclick="loadLevel(level)">↺ 重来</button>
+</div>
+<div id="curve"></div>
+<div class="tip">规则：点掉所有<b>合数</b>和 <b>1</b>（1 既不是素数也不是合数），剩下的就是素数。<br>真正的筛法不用一个个点——划掉 2 的倍数，再划 3 的倍数，再划 5 的倍数……剩下的自然全是素数。只需筛到 √N 就够了。</div>
+<script>
+"use strict";
+// 难度曲线：教学（逐个划）→ 解锁筛法 → 限错 → 喘息 → 终局（限时+限错）
+const LEVELS = [
+  { name:'1 到 30',    n:30,  lives:99, time:0,  sieve:false, hint:'先手动划：点掉所有合数和 1，素数别碰' },
+  { name:'学会筛法',   n:50,  lives:99, time:0,  sieve:true,  hint:'新机制：用上面的按钮一次性筛掉某个素数的所有倍数' },
+  { name:'1 到 100',   n:100, lives:3,  time:0,  sieve:true,  hint:'范围翻倍，只容 3 次错。先筛 2、3、5、7，剩下靠眼力' },
+  { name:'轻松一遍',   n:50,  lives:99, time:0,  sieve:true,  hint:'松弛关：没有压力，把筛法的步骤走顺' },
+  { name:'终局 1 到 120', n:120, lives:2, time:100, sieve:true, hint:'终局：100 秒，只容 2 次错。先按 2、3、5、7、11 的顺序筛' },
+];
+const DIFF = [1,2,3,1,4];
+let level = 0, marked = null, wrong = 0, done = false, t0 = 0, timer = null;
+
+function isPrime(n){
+  if (n < 2) return false;
+  for (let i = 2; i*i <= n; i++) if (n % i === 0) return false;
+  return true;
+}
+function loadLevel(i){
+  level = Math.max(0, Math.min(LEVELS.length-1, i));
+  const L = LEVELS[level];
+  marked = new Set(); wrong = 0; done = false;
+  if (timer) { clearInterval(timer); timer = null; }
+  t0 = Date.now();
+  document.getElementById('lv').textContent = level+1;
+  document.getElementById('lvname').textContent = L.name;
+  document.getElementById('msg').textContent = L.hint;
+  let need = 0;
+  for (let d = 1; d <= L.n; d++) if (!isPrime(d)) need++;
+  document.getElementById('need').textContent = need;
+  const sp = document.getElementById('sievep');
+  sp.innerHTML = '';
+  if (L.sieve){
+    [2,3,5,7,11].filter(p => p*p <= L.n).forEach(p => {
+      const b = document.createElement('button');
+      b.className = 'sv'; b.textContent = '筛 ' + p + ' 的倍数';
+      b.onclick = () => sieve(p);
+      sp.appendChild(b);
+    });
+  } else {
+    sp.innerHTML = '<span>（下一关解锁）</span>';
+  }
+  if (L.time > 0){
+    timer = setInterval(() => {
+      const left = L.time - Math.floor((Date.now()-t0)/1000);
+      document.getElementById('clock').textContent = '⏱ ' + Math.max(0, left) + 's';
+      if (left <= 0 && !done){
+        done = true; clearInterval(timer);
+        document.getElementById('msg').textContent = '⏰ 时间到！还差 ' + remain() + ' 个没划。';
+        setTimeout(() => hub.finish({ win:false, title:'⏰ 时间到',
+          text:'筛法的关键是顺序：先筛 2，再筛 3、5、7、11。一开始就一个个数，肯定来不及。',
+          stat:'第 ' + (level+1) + ' 关 · 还剩 ' + remain() + ' 个' }), 900);
+      }
+    }, 250);
+  } else {
+    document.getElementById('clock').textContent = '';
+  }
+  renderCurve(); build(); update();
+}
+function renderCurve(){
+  const el = document.getElementById('curve');
+  el.innerHTML = '';
+  DIFF.forEach((d, i) => {
+    const b = document.createElement('i');
+    b.style.height = (6 + d*5) + 'px';
+    if (i < level) b.className = 'done'; else if (i === level) b.className = 'cur';
+    b.title = '第 ' + (i+1) + ' 关';
+    el.appendChild(b);
+  });
+}
+function remain(){
+  const L = LEVELS[level];
+  let r = 0;
+  for (let d = 1; d <= L.n; d++) if (!isPrime(d) && !marked.has(d)) r++;
+  return r;
+}
+function build(){
+  const L = LEVELS[level], g = document.getElementById('grid');
+  g.innerHTML = '';
+  for (let d = 1; d <= L.n; d++){
+    const c = document.createElement('div');
+    c.className = 'cell'; c.textContent = d; c.dataset.v = d;
+    c.onclick = () => hit(d, c);
+    g.appendChild(c);
+  }
+}
+function paint(){
+  const L = LEVELS[level];
+  document.querySelectorAll('#grid .cell').forEach(c => {
+    const d = +c.dataset.v;
+    c.classList.toggle('off', marked.has(d));
+  });
+}
+function update(){
+  document.getElementById('done').textContent = marked.size;
+  document.getElementById('lives').textContent = LEVELS[level].lives >= 90 ? '∞'
+    : '♥'.repeat(Math.max(0, LEVELS[level].lives - wrong));
+  paint();
+}
+function hit(d, el){
+  if (done || marked.has(d)) return;
+  const L = LEVELS[level];
+  if (d === 1){
+    marked.add(d);
+    document.getElementById('msg').textContent = '1 既不是素数也不是合数——它也要划掉。';
+  } else if (isPrime(d)){
+    wrong++;
+    el.classList.add('bad');
+    setTimeout(() => el.classList.remove('bad'), 260);
+    document.getElementById('msg').textContent = '❌ ' + d + ' 是素数，别划它！';
+    if (wrong >= L.lives){
+      done = true; if (timer) clearInterval(timer);
+      setTimeout(() => hub.finish({ win:false, title:'😵 划错了素数',
+        text:'素数是筛不掉的——能划掉的只有合数。按 2、3、5、7 的顺序筛，就不会碰错。',
+        stat:'第 ' + (level+1) + ' 关 · 还剩 ' + remain() + ' 个' }), 900);
+    }
+  } else {
+    marked.add(d);
+    document.getElementById('msg').textContent = d + ' = ' + factor(d) + '，合数，划掉。';
+  }
+  update(); checkWin();
+}
+function factor(n){
+  for (let i = 2; i*i <= n; i++) if (n % i === 0) return i + ' × ' + (n/i);
+  return '?';
+}
+function sieve(p){
+  if (done) return;
+  const L = LEVELS[level];
+  let k = 0;
+  for (let d = p*2; d <= L.n; d += p) if (!marked.has(d)) { marked.add(d); k++; }
+  document.getElementById('msg').textContent = '筛掉了 ' + k + ' 个 ' + p + ' 的倍数。';
+  update(); checkWin();
+}
+function checkWin(){
+  if (remain() > 0) return;
+  done = true; if (timer) clearInterval(timer);
+  document.querySelectorAll('#grid .cell').forEach(c => { if (isPrime(+c.dataset.v)) c.classList.add('prime'); });
+  const L = LEVELS[level];
+  const star = wrong === 0 ? '★★★ 完美筛' : (wrong === 1 ? '★★☆' : '★☆☆');
+  document.getElementById('msg').textContent = '✨ 筛完了！剩下的全是素数　' + star;
+  if (level === LEVELS.length - 1){
+    setTimeout(() => hub.finish({ win:true, title:'🎆 五关全通！',
+      text:'公元前 3 世纪埃拉托斯特尼发明的这把筛子，今天还在跑——你的银行卡加密，靠的就是这些筛剩下的数。',
+      stat:'终局 1-120 筛完 · ' + star }), 1300);
+  } else {
+    setTimeout(() => loadLevel(level+1), 1300);
+  }
+}
+loadLevel(0);
+</script>
+</body>
+</html>

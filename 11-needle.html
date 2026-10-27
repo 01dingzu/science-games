@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>蒲丰投针 · 用随机逼近 π</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; user-select:none; }
+  body { background:#0d1026; color:#e8ecf5; font-family:"Microsoft YaHei",sans-serif; display:flex; flex-direction:column; align-items:center; min-height:100vh; padding:16px; }
+  h1 { font-size:21px; margin-bottom:2px; }
+  .sub { color:#8fa3c8; font-size:13px; margin-bottom:8px; text-align:center; }
+  canvas { background:#131838; border-radius:12px; max-width:100%; }
+  #hud { display:flex; gap:14px; font-size:13px; margin-top:10px; flex-wrap:wrap; justify-content:center; }
+  #hud b { color:#ffd166; }
+  #hud .dim { color:#9db2d0; }
+  #msg { min-height:24px; margin-top:8px; font-size:14px; font-weight:bold; color:#7ee8fa; text-align:center; max-width:460px; }
+  #btns { margin-top:8px; display:flex; gap:8px; flex-wrap:wrap; justify-content:center; }
+  button { background:#2a3468; color:#fff; border:none; padding:9px 16px; border-radius:8px; font-size:14px; cursor:pointer; }
+  button:hover { background:#36447f; }
+  .tip { color:#8fa3c8; font-size:12px; margin-top:10px; max-width:470px; text-align:center; line-height:1.7; }
+  #curve { display:flex; gap:4px; margin-top:12px; align-items:flex-end; height:28px; }
+  #curve i { display:block; width:18px; background:#2a3468; border-radius:2px 2px 0 0; }
+  #curve i.done { background:#3f8f74; }
+  #curve i.cur { background:#ffd166; }
+</style>
+<script src="hub.js"></script>
+<script src="stories.js"></script>
+</head>
+<body>
+<h1>🪡 蒲丰投针</h1>
+<div class="sub">把针随机扔在平行线上，用「相交的频率」反推出 π</div>
+<canvas id="cv" width="440" height="300"></canvas>
+<div id="hud">
+  <span>第 <b id="lv">1</b>/5 关 · <span class="dim" id="lvname"></span></span>
+  <span>投掷 <b id="nn">0</b>/<b id="cap">0</b></span>
+  <span>相交 <b id="hh">0</b></span>
+  <span>π ≈ <b id="pi">—</b></span>
+  <span>误差 <b id="err">—</b></span>
+</div>
+<div id="msg"></div>
+<div id="btns">
+  <button onclick="toss(1)">投 1 根</button>
+  <button onclick="toss(10)">投 10 根</button>
+  <button onclick="toss(100)">投 100 根</button>
+  <button onclick="loadLevel(level)">↺ 重来</button>
+</div>
+<div id="curve"></div>
+<div class="tip">针与平行线相交的概率 = 2L / (π·D)。反过来数一数相交了多少次，就能倒推出 π —— 这是人类第一次用「随机」去逼近一个确定的数。<br>投得越多越准，但收敛很慢：要再精确一位，得投一百倍的次数。</div>
+<script>
+"use strict";
+const cv = document.getElementById('cv'), ctx = cv.getContext('2d');
+const W = 440, H = 300;
+// 难度曲线：教学 → 短针（相交稀少）→ 精度挑战 → 喘息（宽松到离谱）→ 终局
+const LEVELS = [
+  { name:'第一次投针', L:45, D:60, cap:60,   tol:0.50, minN:8,   hint:'先投个十来根看看：π 的估计值会在 3.14 附近晃' },
+  { name:'换成短针',   L:30, D:60, cap:200,  tol:0.30, minN:20,  hint:'新机制：针短了一半，相交变稀少，得多投很多次才稳' },
+  { name:'再精确一位', L:50, D:60, cap:400,  tol:0.15, minN:50,  hint:'想多精确一位，要投大约一百倍的次数——用「投 100 根」' },
+  { name:'放手扔',     L:45, D:60, cap:1200, tol:0.40, minN:30,  hint:'松弛关：额度管够，看着 π 一点点收敛就行' },
+  { name:'冲到小数点后两位', L:40, D:60, cap:1500, tol:0.08, minN:150, hint:'终局：误差要压到 0.08 以内，耐心和次数缺一不可' },
+];
+const DIFF = [1,2,3,1,4];
+let level = 0, n = 0, h = 0, done = false, keep = [];
+
+function loadLevel(i){
+  level = Math.max(0, Math.min(LEVELS.length-1, i));
+  n = 0; h = 0; done = false; keep = [];
+  const L = LEVELS[level];
+  document.getElementById('lv').textContent = level+1;
+  document.getElementById('lvname').textContent = L.name;
+  document.getElementById('cap').textContent = L.cap;
+  document.getElementById('msg').textContent = L.hint;
+  renderCurve(); update(); draw();
+}
+function renderCurve(){
+  const el = document.getElementById('curve');
+  el.innerHTML = '';
+  DIFF.forEach((d, i) => {
+    const b = document.createElement('i');
+    b.style.height = (6 + d*5) + 'px';
+    if (i < level) b.className = 'done'; else if (i === level) b.className = 'cur';
+    b.title = '第 ' + (i+1) + ' 关';
+    el.appendChild(b);
+  });
+}
+function piEst(){ return (h > 0) ? (2*LEVELS[level].L*n) / (LEVELS[level].D*h) : 0; }
+function update(){
+  const L = LEVELS[level];
+  document.getElementById('nn').textContent = n;
+  document.getElementById('hh').textContent = h;
+  const p = piEst();
+  document.getElementById('pi').textContent = h > 0 ? p.toFixed(4) : '—';
+  document.getElementById('err').textContent = h > 0 ? Math.abs(p - Math.PI).toFixed(4) : '—';
+}
+function toss(k){
+  if (done) return;
+  const L = LEVELS[level];
+  const room = L.cap - n;
+  if (room <= 0) return;
+  k = Math.min(k, room);
+  for (let i = 0; i < k; i++){
+    const x = 8 + Math.random()*(W-16), y = 6 + Math.random()*(H-12), a = Math.random()*Math.PI;
+    const dist = Math.min(y % L.D, L.D - (y % L.D));
+    const half = (L.L/2)*Math.abs(Math.sin(a));
+    const hit = dist <= half;
+    n++; if (hit) h++;
+    keep.push({x, y, a, hit});
+  }
+  if (keep.length > 90) keep = keep.slice(-90);
+  update(); draw(); check();
+}
+function check(){
+  const L = LEVELS[level];
+  const p = piEst();
+  if (h > 0 && n >= L.minN && Math.abs(p - Math.PI) <= L.tol){
+    done = true;
+    const left = L.cap - n;
+    const star = left > L.cap*0.6 ? '★★★' : (left > L.cap*0.3 ? '★★☆' : '★☆☆');
+    document.getElementById('msg').textContent = '✨ π ≈ ' + p.toFixed(4) + '，误差 ' + Math.abs(p-Math.PI).toFixed(4) + '　' + star;
+    if (level === LEVELS.length - 1){
+      setTimeout(() => hub.finish({ win:true, title:'🎆 五关全通！',
+        text:'你用一堆随机扔出去的针，把 π 逼到了小数点后两位。这就是蒙特卡洛方法的起点——从核武器到金融到 AI，都在用这套思路。',
+        stat:'终局 π ≈ ' + p.toFixed(4) + ' · ' + star }), 1200);
+    } else {
+      setTimeout(() => loadLevel(level+1), 1200);
+    }
+    return;
+  }
+  if (n >= L.cap){
+    done = true;
+    document.getElementById('msg').textContent = '❌ 投掷额度用完了，误差 ' + Math.abs(p-Math.PI).toFixed(4) + ' ＞ 目标 ' + L.tol;
+    setTimeout(() => hub.finish({ win:false, title:'😵 次数用尽',
+      text:'随机方法的代价就在这里：想再精确一位，次数要翻一百倍。重来一次，早点改用「投 100 根」。',
+      stat:'第 ' + (level+1) + ' 关 · π ≈ ' + p.toFixed(4) }), 900);
+  }
+}
+function draw(){
+  const L = LEVELS[level];
+  ctx.clearRect(0,0,W,H);
+  ctx.strokeStyle = '#39456e'; ctx.lineWidth = 1;
+  for (let y = 0; y <= H; y += L.D){
+    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
+  }
+  keep.forEach((nd, i) => {
+    const a = 0.25 + 0.75*(i/Math.max(1,keep.length-1));
+    const dx = Math.cos(nd.a)*L.L/2, dy = Math.sin(nd.a)*L.L/2;
+    ctx.strokeStyle = nd.hit ? 'rgba(126,240,194,'+a+')' : 'rgba(255,109,138,'+a+')';
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(nd.x-dx, nd.y-dy); ctx.lineTo(nd.x+dx, nd.y+dy); ctx.stroke();
+  });
+  ctx.fillStyle = '#8fa3c8'; ctx.font = '12px "Microsoft YaHei"'; ctx.textAlign = 'left';
+  ctx.fillText('线间距 D = ' + L.D + '　针长 L = ' + L.L + '　L/D = ' + (L.L/L.D).toFixed(2), 10, H-8);
+}
+loadLevel(0);
+</script>
+</body>
+</html>

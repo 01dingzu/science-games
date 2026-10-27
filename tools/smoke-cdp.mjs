@@ -322,5 +322,71 @@ await test('10-chip 半导体小镇', '10-chip', async logs => {
   logs.push('季度结算 OK: ' + String(m).slice(0, 40));
 });
 
+await test('11-needle 蒲丰投针', '11-needle', async logs => {
+  await evaluate('toss(50)');
+  const n = await evaluate('n'), h = await evaluate('h'), p = await evaluate('piEst()');
+  if (!(n > 0)) throw new Error('投掷没生效 n=' + n);
+  if (!(h > 0 && h < n)) throw new Error('相交数不合理 n=' + n + ' h=' + h);
+  if (!(Math.abs(p - Math.PI) < 1.0)) throw new Error('π 估计离谱 p=' + p);
+  logs.push('投 ' + n + ' 根 OK π≈' + p.toFixed(3) + ' 相交 ' + h);
+});
+
+await test('12-bridges 七桥一笔画', '12-bridges', async logs => {
+  await evaluate(`(() => {
+    const r = cv.getBoundingClientRect();
+    const fire = (nx, ny) => cv.dispatchEvent(new MouseEvent('click', {
+      clientX: r.left + nx * r.width / cv.width,
+      clientY: r.top + ny * r.height / cv.height, bubbles: true }));
+    fire(220, 70); fire(90, 260); fire(350, 260); fire(220, 70);
+  })()`);
+  const m = await evaluate('document.getElementById("msg").textContent');
+  if (!String(m).includes('一笔画完')) throw new Error('没走完 msg=' + m);
+  logs.push('三角形一笔画 OK');
+});
+
+await test('13-sieve 素数筛', '13-sieve', async logs => {
+  await evaluate('sieve(2); sieve(3); sieve(5);');
+  const r = await evaluate('remain()');
+  if (r !== 1) throw new Error('筛完 2/3/5 后应只剩 1，实际 remain=' + r);
+  await evaluate(`hit(1, document.querySelector('#grid .cell'))`);
+  const m = await evaluate('document.getElementById("msg").textContent');
+  if (!String(m).includes('筛完了')) throw new Error('没通关 msg=' + m);
+  logs.push('1-30 筛完 OK');
+});
+
+await test('lore 史实图鉴', 'lore', async logs => {
+  const total = await evaluate('document.querySelectorAll("#list .item").length');
+  if (total !== 39) throw new Error('图鉴条目数 = ' + total + '，期望 39');
+  const txt = await evaluate('document.getElementById("ptxt").textContent');
+  logs.push('图鉴 ' + total + ' 条 · ' + txt);
+});
+
+await test('stories 史实解锁 + 结算卡', '11-needle', async logs => {
+  await evaluate('SCI.unlock("11-needle")');
+  const n = await evaluate('Object.keys(JSON.parse(localStorage.getItem("sciStoriesSeen")||"{}")).filter(k=>k.indexOf("11-needle")===0).length');
+  if (n !== 3) throw new Error('解锁条数 = ' + n);
+  await evaluate('hub.finish({win:true,title:"t",text:"t",stat:"s"})');
+  const has = await evaluate('!!document.querySelector("#hubEnd .hub-lore")');
+  if (!has) throw new Error('结算面板没有挂上史实卡');
+  const t = await evaluate('document.querySelector("#hubEnd .hub-lore-t").textContent');
+  logs.push('解锁 3 条 + 史实卡 OK：' + String(t).slice(0, 24));
+});
+
+// 静态接线检查：新增游戏时最容易漏掉 hub.js / stories.js / hub.finish
+{
+  const fsm = await import('node:fs');
+  const ids = ['1-fusion','2-valence','3-bacteria','4-mito','5-bridge','6-factory','7-optics',
+               '8-vaccine','9-fission','10-chip','11-needle','12-bridges','13-sieve'];
+  const bad = ids.filter(f => {
+    const s = fsm.readFileSync(DIR + '/' + f + '.html', 'utf8');
+    return !(s.includes('hub.js') && s.includes('stories.js') && s.includes('hub.finish') && s.includes('DIFF'));
+  });
+  results.push({
+    name: '接线检查：13 个游戏都接了 hub / stories / 难度曲线',
+    status: bad.length ? 'FAIL' : 'PASS',
+    logs: bad.length ? ['缺件: ' + bad.join(', ')] : ['13 个游戏全部含 hub.js + stories.js + hub.finish + DIFF']
+  });
+}
+
 finish();
 

@@ -30,6 +30,7 @@
   .tip { color:#5b6b80; font-size:12px; margin-top:10px; max-width:560px; text-align:center; line-height:1.7; }
 </style>
 <script src="hub.js"></script>
+<script src="stories.js"></script>
 </head>
 <body>
 <h1>💉 疫苗工厂</h1>
@@ -71,6 +72,7 @@ const CHAPTERS = [
   { name:'第四阶段 · 终局冲刺', from:10, to:12, tip:'最后一次变异，全部资源压上去' },
 ];
 const MUT_WEEKS = [4, 7, 10];
+const DIFF = [1, 2, 3, 4];
 let virus;
 function chapterOf(w){
   for (let i = 0; i < CHAPTERS.length; i++) if (w >= CHAPTERS[i].from && w <= CHAPTERS[i].to) return i;
@@ -87,11 +89,11 @@ function renderCurve(){
   const el = document.getElementById('curve');
   el.innerHTML = '';
   const cur = chapterOf(week);
-  [1,2,3,4].forEach(d => {
+  DIFF.forEach((d, i) => {
     const b = document.createElement('i');
     b.style.height = (6 + d*5) + 'px';
-    if (d - 1 < cur) b.className = 'done'; else if (d - 1 === cur) b.className = 'cur';
-    b.title = '第 ' + d + ' 阶段';
+    if (i < cur) b.className = 'done'; else if (i === cur) b.className = 'cur';
+    b.title = '第 ' + (i+1) + ' 阶段';
     el.appendChild(b);
   });
 }

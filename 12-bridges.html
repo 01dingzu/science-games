@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>七桥一笔画 · 欧拉路径</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; user-select:none; }
+  body { background:#0d1026; color:#e8ecf5; font-family:"Microsoft YaHei",sans-serif; display:flex; flex-direction:column; align-items:center; min-height:100vh; padding:16px; }
+  h1 { font-size:21px; margin-bottom:2px; }
+  .sub { color:#8fa3c8; font-size:13px; margin-bottom:8px; text-align:center; }
+  canvas { background:#131838; border-radius:12px; cursor:pointer; max-width:100%; touch-action:manipulation; }
+  #hud { display:flex; gap:14px; font-size:13px; margin-top:10px; flex-wrap:wrap; justify-content:center; }
+  #hud b { color:#ffd166; }
+  #hud .dim { color:#9db2d0; }
+  #msg { min-height:26px; margin-top:8px; font-size:14px; font-weight:bold; color:#7ee8fa; text-align:center; max-width:470px; }
+  #btns { margin-top:8px; display:flex; gap:8px; flex-wrap:wrap; justify-content:center; }
+  button { background:#2a3468; color:#fff; border:none; padding:9px 16px; border-radius:8px; font-size:14px; cursor:pointer; }
+  button:hover { background:#36447f; }
+  button.warn { background:#5b2a3c; }
+  button.warn:hover { background:#7a3a50; }
+  .tip { color:#8fa3c8; font-size:12px; margin-top:10px; max-width:480px; text-align:center; line-height:1.7; }
+  #curve { display:flex; gap:4px; margin-top:12px; align-items:flex-end; height:28px; }
+  #curve i { display:block; width:18px; background:#2a3468; border-radius:2px 2px 0 0; }
+  #curve i.done { background:#3f8f74; }
+  #curve i.cur { background:#ffd166; }
+</style>
+<script src="hub.js"></script>
+<script src="stories.js"></script>
+</head>
+<body>
+<h1>🌉 七桥一笔画</h1>
+<div class="sub">点一个点起步，每条边只能走一次——看能不能一笔画完</div>
+<canvas id="cv" width="440" height="340"></canvas>
+<div id="hud">
+  <span>第 <b id="lv">1</b>/5 关 · <span class="dim" id="lvname"></span></span>
+  <span>已走 <b id="walked">0</b>/<b id="total">0</b></span>
+  <span class="dim" id="oddinfo"></span>
+</div>
+<div id="msg"></div>
+<div id="btns">
+  <button onclick="loadLevel(level)">↺ 重来</button>
+  <button class="warn" onclick="claimImpossible()">🚫 我断言：这题无解</button>
+</div>
+<div id="curve"></div>
+<div class="tip">欧拉 1736 年的判据只有一句话：把每个点连着几条边数出来（叫「度」）。<b>度数为奇数的点超过 2 个，就一定走不通</b>；恰好 2 个，必须从其中一个出发、回到另一个；全都是偶数，从哪儿出发都行。<br>顶点旁的小数字是「还剩几条边没走」，卡住的时候看它。</div>
+<script>
+"use strict";
+const cv = document.getElementById('cv'), ctx = cv.getContext('2d');
+// 难度曲线：教学 → 反直觉（无解）→ 起点限制 → 松弛 → 终局
+const LEVELS = [
+  { name:'热身为三角形', solvable:true, hint:'先随便点一个点起步，把三条边都走一遍',
+    nodes:[[220,70],[90,260],[350,260]], edges:[[0,1],[1,2],[2,0]] },
+
+  { name:'哥尼斯堡七桥', solvable:false, hint:'这座城走不通——先自己试，试明白为什么，再点「无解」',
+    nodes:[[150,90],[300,90],[150,240],[300,240]],
+    edges:[[0,1],[0,1],[0,2],[0,2],[0,3],[1,3],[2,3]] },
+
+  { name:'信封（两奇点）', solvable:true, hint:'新机制：这一关有解，但起点不能随便选——先数数哪两个点是奇数',
+    nodes:[[100,260],[340,260],[340,130],[100,130],[220,60]],
+    edges:[[0,1],[1,2],[2,3],[3,0],[0,2],[1,3],[3,4],[2,4]] },
+
+  { name:'六边形与内三角', solvable:true, hint:'松弛关：所有点都是偶数，随便挑一个点绕就行',
+    nodes:[[220,60],[315,115],[315,225],[220,280],[125,225],[125,115]],
+    edges:[[0,1],[1,2],[2,3],[3,4],[4,5],[5,0],[0,2],[2,4],[4,0]] },
+
+  { name:'五角星终局', solvable:true, hint:'终局：10 条边一笔连完，星与圈要穿插着走',
+    nodes:[[220,50],[334,133],[290,267],[150,267],[106,133]],
+    edges:[[0,1],[1,2],[2,3],[3,4],[4,0],[0,2],[2,4],[4,1],[1,3],[3,0]] },
+];
+const DIFF = [1,3,2,1,4];
+let level = 0, used = [], cur = -1, done = false;
+
+function loadLevel(i){
+  level = Math.max(0, Math.min(LEVELS.length-1, i));
+  const L = LEVELS[level];
+  used = L.edges.map(() => false);
+  cur = -1; done = false;
+  document.getElementById('lv').textContent = level+1;
+  document.getElementById('lvname').textContent = L.name;
+  document.getElementById('total').textContent = L.edges.length;
+  document.getElementById('msg').textContent = L.hint;
+  const odd = L.nodes.map((_, k) => L.edges.filter(e => e[0]===k || e[1]===k).length).filter(d => d%2===1).length;
+  document.getElementById('oddinfo').textContent = '奇度点 ' + odd + ' 个';
+  renderCurve(); update(); draw();
+}
+function renderCurve(){
+  const el = document.getElementById('curve');
+  el.innerHTML = '';
+  DIFF.forEach((d, i) => {
+    const b = document.createElement('i');
+    b.style.height = (6 + d*5) + 'px';
+    if (i < level) b.className = 'done'; else if (i === level) b.className = 'cur';
+    b.title = '第 ' + (i+1) + ' 关';
+    el.appendChild(b);
+  });
+}
+function restDeg(k){
+  const L = LEVELS[level];
+  let n = 0;
+  L.edges.forEach((e, i) => { if (!used[i] && (e[0]===k || e[1]===k)) n++; });
+  return n;
+}
+function update(){ document.getElementById('walked').textContent = used.filter(Boolean).length; }
+function edgeOffset(a, b, idx){
+  const L = LEVELS[level];
+  let cnt = 0, at = 0;
+  L.edges.forEach((e, i) => {
+    if ((e[0]===a && e[1]===b) || (e[0]===b && e[1]===a)) { cnt++; if (i < idx) at++; }
+  });
+  return (at - (cnt-1)/2) * 22;
+}
+function draw(){
+  const L = LEVELS[level];
+  ctx.clearRect(0,0,cv.width,cv.height);
+  L.edges.forEach((e, i) => {
+    const [a, b] = e, p = L.nodes[a], q = L.nodes[b];
+    const mx = (p[0]+q[0])/2, my = (p[1]+q[1])/2;
+    const dx = q[0]-p[0], dy = q[1]-p[1], len = Math.hypot(dx, dy) || 1;
+    const off = edgeOffset(a, b, i);
+    const cx = mx + (-dy/len)*off, cy = my + (dx/len)*off;
+    ctx.strokeStyle = used[i] ? '#3f8f74' : '#4a5686';
+    ctx.lineWidth = used[i] ? 5 : 3;
+    ctx.beginPath(); ctx.moveTo(p[0], p[1]); ctx.quadraticCurveTo(cx, cy, q[0], q[1]); ctx.stroke();
+  });
+  L.nodes.forEach((p, k) => {
+    const isCur = k === cur;
+    ctx.beginPath(); ctx.arc(p[0], p[1], 17, 0, 7);
+    ctx.fillStyle = isCur ? '#ffd166' : '#202a4d'; ctx.fill();
+    ctx.strokeStyle = isCur ? '#fff' : '#5b6f8f'; ctx.lineWidth = 2; ctx.stroke();
+    ctx.fillStyle = isCur ? '#1b1b1b' : '#e8ecf5';
+    ctx.font = 'bold 13px "Microsoft YaHei"'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(String(k), p[0], p[1]);
+    const r = restDeg(k);
+    ctx.fillStyle = r === 0 ? '#5b6f8f' : '#7ee8fa';
+    ctx.font = '12px "Microsoft YaHei"';
+    ctx.fillText('剩' + r, p[0], p[1] + 30);
+  });
+}
+cv.addEventListener('click', ev => {
+  if (done) return;
+  const rect = cv.getBoundingClientRect();
+  const x = (ev.clientX - rect.left) * (cv.width / rect.width);
+  const y = (ev.clientY - rect.top) * (cv.height / rect.height);
+  const L = LEVELS[level];
+  let pick = -1;
+  L.nodes.forEach((p, k) => { if (Math.hypot(p[0]-x, p[1]-y) < 26) pick = k; });
+  if (pick < 0) return;
+  if (cur < 0){ cur = pick; document.getElementById('msg').textContent = '起点选了 ' + pick + ' 号点，继续点相邻的点走边。'; draw(); return; }
+  if (pick === cur) return;
+  const idx = L.edges.findIndex((e, i) => !used[i] && ((e[0]===cur && e[1]===pick) || (e[1]===cur && e[0]===pick)));
+  if (idx < 0){ document.getElementById('msg').textContent = '点 ' + cur + ' 到点 ' + pick + ' 之间没有没走过的边。'; return; }
+  used[idx] = true; cur = pick;
+  update(); draw();
+  if (used.every(Boolean)){
+    done = true;
+    document.getElementById('msg').textContent = '✨ 一笔画完！' + L.edges.length + ' 条边，一次没重复。';
+    if (level === LEVELS.length - 1){
+      setTimeout(() => hub.finish({ win:true, title:'🎆 五关全通！',
+        text:'从哥尼斯堡的七座桥到快递路线，能不能一笔走完，只取决于每个点连了几条边——和桥多长、路多宽毫无关系。这就是图论的第一课。',
+        stat:'5 关全通 · 五角星 10 边一笔连完' }), 1200);
+    } else {
+      setTimeout(() => loadLevel(level+1), 1200);
+    }
+    return;
+  }
+  if (restDeg(cur) === 0){
+    document.getElementById('msg').textContent = '⚠ 卡住了：点 ' + cur + ' 已经没有没走过的边。重来一次，换个起点试试。';
+  }
+});
+function claimImpossible(){
+  if (done) return;
+  const L = LEVELS[level];
+  if (!L.solvable){
+    done = true;
+    document.getElementById('msg').textContent = '✅ 判对了：奇度点有 4 个，超过 2 个就一定走不通。';
+    setTimeout(() => loadLevel(level+1), 1500);
+  } else {
+    const odd = L.nodes.map((_, k) => L.edges.filter(e => e[0]===k || e[1]===k).length).filter(d => d%2===1).length;
+    document.getElementById('msg').textContent = '❌ 这题其实有解：奇度点只有 ' + odd + ' 个（≤2 就一定能走完）。自己去走一遍。';
+  }
+}
+loadLevel(0);
+</script>
+</body>
+</html>

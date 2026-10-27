@@ -15,6 +15,9 @@
   #progfill { display:block; height:100%; width:0; background:linear-gradient(90deg,#ffd166,#7ee8b0); transition:width .35s; }
   #reset { color:#5b6f8f; font-size:12px; text-decoration:none; }
   #reset:hover { color:#9db2d0; }
+  #lore { color:#9db2d0; font-size:12px; text-decoration:none; }
+  #lore:hover { color:#ffd166; }
+  #lore b { color:#ffd166; }
   .grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(260px, 1fr)); gap:14px; }
   a.card { display:block; background:#1a2740; border-radius:14px; padding:18px; text-decoration:none; color:inherit; transition:transform .15s, background .15s; border:1px solid #263a5e; }
   a.card:hover { transform:translateY(-3px); background:#22335a; }
@@ -25,6 +28,7 @@
   .tag { display:inline-block; font-size:11px; padding:2px 8px; border-radius:10px; margin-top:8px; margin-right:4px; }
   .t-phy { background:#1e3a5f; color:#7ec8fa; } .t-che { background:#3d2f56; color:#c9a2ff; }
   .t-bio { background:#1e4030; color:#7ee8b0; } .t-ind { background:#4a3520; color:#ffc078; }
+  .t-math { background:#1e4a52; color:#7ee8e0; }
   .done { display:none; font-size:11px; padding:2px 8px; border-radius:10px; background:#1e4030; color:#7ee8b0; margin-left:4px; }
   a.card.cleared .done { display:inline-block; }
   .ref { font-size:11px; color:#5b6f8f; margin-top:6px; }
@@ -32,11 +36,12 @@
 </head>
 <body>
 <div class="wrap">
-  <h1>🔬 物化生工业科普小游戏 · 十连发</h1>
-  <div class="sub">十个方向，每个都借了市面上好玩游戏的壳。全部单文件、零依赖、点开即玩。游戏内右上角随时可回本页。</div>
+  <h1>🔬 物化数工科普小游戏 · 十三连发</h1>
+  <div class="sub">十三个方向，每个都借了市面上好玩游戏的壳。全部单文件、零依赖、点开即玩。游戏内右上角随时可回本页；每通关一个游戏，解锁它的 3 条史实故事。</div>
   <div id="prog">
     <span id="progtxt">已通关 0/10</span>
     <div id="progbar"><i id="progfill"></i></div>
+    <a href="lore.html" id="lore">📖 史实图鉴 <b id="loren">0</b></a>
     <a href="#" id="reset">清除通关记录</a>
   </div>
   <div class="grid">
@@ -50,8 +55,12 @@
     <a class="card" href="8-vaccine.html"><div class="ico">💉</div><h2>疫苗工厂</h2><p>和病毒变异赛跑的周经营：研发匹配、产能、质检、公关四线平衡。</p><span class="tag t-bio">生物+工业 · 流程管理</span><span class="done">✓ 已通关</span><div class="ref">对标：瘟疫公司反向 / 经营</div></a>
     <a class="card" href="9-fission.html"><div class="ico">⚛️</div><h2>分子弹球</h2><p>弹射中子轰铀-235，链式裂变清屏；中子放太多会熔毁，要学会插控制棒。</p><span class="tag t-phy">物理 · 核裂变</span><span class="done">✓ 已通关</span><div class="ref">对标：愤怒的小鸟 × 弹球</div></a>
     <a class="card" href="10-chip.html"><div class="ico">🖥️</div><h2>半导体小镇</h2><p>芯片厂季度经营：提纯 11 个 9、赌先进制程、卷良率——芯片战争模拟器。</p><span class="tag t-ind">工业 · 半导体</span><span class="done">✓ 已通关</span><div class="ref">对标：波西亚时光 / 经营策略</div></a>
+    <a class="card" href="11-needle.html"><div class="ico">🪡</div><h2>蒲丰投针</h2><p>把针随机扔在平行线上，用相交的频率反推出 π —— 蒙特卡洛方法的起点。</p><span class="tag t-math">数学 · 概率</span><span class="done">✓ 已通关</span><div class="ref">对标：蒙特卡洛实验</div></a>
+    <a class="card" href="12-bridges.html"><div class="ico">🌉</div><h2>七桥一笔画</h2><p>每条边只走一次，能一笔走完吗？有一关是故意走不通的——你得证明它。</p><span class="tag t-math">数学 · 图论</span><span class="done">✓ 已通关</span><div class="ref">对标：一笔画解谜</div></a>
+    <a class="card" href="13-sieve.html"><div class="ico">🧮</div><h2>素数筛</h2><p>划掉 2 的倍数、3 的倍数、5 的倍数……筛剩下的就是素数，两千多年没换过方法。</p><span class="tag t-math">数学 · 数论</span><span class="done">✓ 已通关</span><div class="ref">对标：消除类 / 数织</div></a>
   </div>
 </div>
+<script src="stories.js"></script>
 <script>
 (function(){
   var KEY = 'sciGamesCleared';
@@ -71,6 +80,13 @@
     try { localStorage.removeItem(KEY); } catch(err){}
     render();
   };
+  try {
+    var st = JSON.parse(localStorage.getItem('sciStoriesSeen') || '{}'), n = 0;
+    Object.keys(SCI.stories).forEach(function(g){
+      SCI.stories[g].forEach(function(it, i){ if (st[g + '#' + i]) n++; });
+    });
+    document.getElementById('loren').textContent = n;
+  } catch(e2){}
   render();
 })();
 </script>
