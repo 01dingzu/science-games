@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>分子弹球 · 链式裂变</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; user-select:none; }
+  body { background:#0a0f14; color:#dce8f0; font-family:"Microsoft YaHei",sans-serif; display:flex; flex-direction:column; align-items:center; min-height:100vh; padding:14px; }
+  h1 { font-size:21px; margin-bottom:2px; }
+  .sub { color:#7e93a5; font-size:13px; margin-bottom:8px; text-align:center; }
+  #hud { display:flex; gap:16px; font-size:14px; margin-bottom:6px; flex-wrap:wrap; justify-content:center; }
+  #hud b { color:#ffd166; }
+  #hud .dim { color:#7e93a5; }
+  canvas { background:radial-gradient(circle at 50% 40%, #14202c 0%, #0a0f14 75%); border-radius:12px; cursor:crosshair; touch-action:none; }
+  #heatbar { width:480px; max-width:92vw; height:12px; background:#1c2833; border-radius:6px; overflow:hidden; margin-top:8px; }
+  #heatin { height:100%; width:0%; background:linear-gradient(90deg,#4dd0e1,#ffd166,#ff5252); transition:width .15s; }
+  #btns { display:flex; gap:10px; margin-top:8px; flex-wrap:wrap; justify-content:center; }
+  button { background:#28536b; color:#fff; border:none; padding:10px 20px; border-radius:8px; font-size:14px; cursor:pointer; }
+  button:disabled { opacity:.4; cursor:not-allowed; }
+  #msg { min-height:24px; margin-top:6px; font-size:14px; font-weight:bold; color:#4dd0e1; text-align:center; max-width:460px; }
+  #stars { font-size:20px; color:#ffb454; letter-spacing:3px; min-height:24px; }
+  #curve { display:flex; gap:4px; margin-top:8px; align-items:flex-end; height:26px; }
+  #curve i { display:block; width:24px; background:#1c2833; border-radius:2px 2px 0 0; }
+  #curve i.done { background:#3f8f74; }
+  #curve i.cur { background:#ffd166; }
+  .tip { color:#7e93a5; font-size:12px; margin-top:8px; max-width:470px; text-align:center; line-height:1.7; }
+</style>
+<script src="hub.js"></script>
+</head>
+<body>
+<h1>⚛️ 分子弹球</h1>
+<div class="sub">从底部炮台发射中子轰击铀-235 —— 裂变放出更多中子，就是链式反应</div>
+<div id="hud">
+  <span>第 <b id="lv">1</b>/5 关 · <span class="dim" id="lvname"></span></span>
+  <span>能量 <b id="score">0</b>/<b id="goal">100</b></span>
+  <span>时间 <b id="time">60</b>s</span>
+  <span>飞行中子 <b id="n">0</b></span>
+</div>
+<canvas id="cv" width="480" height="560"></canvas>
+<div id="heatbar"><div id="heatin"></div></div>
+<div style="font-size:11px;color:#7e93a5;margin-top:2px">反应堆温度（中子太多会熔毁！插控制棒吸收）</div>
+<div id="btns">
+  <button id="rod" onclick="insertRod()">🧱 插入控制棒（吸收所有中子）</button>
+  <button onclick="restart(level)">🔄 重玩本关</button>
+</div>
+<div id="msg"></div>
+<div id="stars"></div>
+<div id="curve"></div>
+<div class="tip">灰蓝色方块是屏蔽块：中子撞上就被吸收，得挑角度绕过去。<br>每次裂变 +10 能量、温度 +6；温度满 100 反应堆熔毁——真实核电站靠控制棒吸收多余中子，就是这个道理。</div>
+<script>
+"use strict";
+const cv = document.getElementById('cv'), ctx = cv.getContext('2d');
+const W = 480, H = 560;
+const U_R = 26, N_R = 5;
+// 难度曲线：教学(3核) → 控温(5核) → 密集堆芯(7核) → 新机制(屏蔽块) → 终局(10核+3屏蔽)
+const LEVELS = [
+  { name:'初次碰撞', n:3,  time:60, goal:100, blocks:[],                                        tip:'教学关：随便打，看中子撞上铀核会发生什么' },
+  { name:'学会控温', n:5,  time:55, goal:260, blocks:[],                                        tip:'核多了，温度上升更快——注意温度条，必要时插控制棒' },
+  { name:'密集堆芯', n:7,  time:50, goal:420, blocks:[],                                        tip:'核排得很密，一次裂变会连锁引爆一片，也容易熔毁' },
+  { name:'屏蔽块',   n:8,  time:45, goal:520, blocks:[[150,180,90,70],[280,320,90,70]],          tip:'新机制：灰色屏蔽块会吃掉中子，得找角度绕过去' },
+  { name:'终局堆芯', n:10, time:45, goal:640, blocks:[[120,150,80,60],[280,150,80,60],[190,330,100,60]], tip:'终局：10 个核 + 3 块屏蔽，温度与时间双重压力' },
+];
+const DIFF = [1,2,3,4,5];
+let nuclei, neutrons, score, time, heat, over, rodCd, flashes, level, blocks;
+function restart(lv){
+  level = Math.max(0, Math.min(LEVELS.length-1, lv === undefined ? 0 : lv));
+  const L = LEVELS[level];
+  nuclei = []; neutrons = []; score = 0; time = L.time; heat = 0; over = false; rodCd = 0; flashes = [];
+  blocks = L.blocks.map(b => ({x:b[0], y:b[1], w:b[2], h:b[3]}));
+  for (let i = 0; i < L.n; i++){
+    let x, y, ok, tries = 0;
+    do {
+      x = 50 + Math.random()*(W-100); y = 40 + Math.random()*(H-240); ok = true;
+      for (const n of nuclei) if (Math.hypot(n.x-x, n.y-y) < U_R*2.6) ok = false;
+      for (const b of blocks) if (x > b.x-U_R && x < b.x+b.w+U_R && y > b.y-U_R && y < b.y+b.h+U_R) ok = false;
+    } while (!ok && ++tries < 60);
+    nuclei.push({x, y});
+  }
+  document.getElementById('lv').textContent = level+1;
+  document.getElementById('lvname').textContent = L.name;
+  document.getElementById('goal').textContent = L.goal;
+  document.getElementById('stars').textContent = '';
+  document.getElementById('msg').textContent = L.tip;
+  renderCurve(); renderHud();
+}
+function renderCurve(){
+  const el = document.getElementById('curve');
+  el.innerHTML = '';
+  DIFF.forEach((d, i) => {
+    const b = document.createElement('i');
+    b.style.height = (6 + d*4) + 'px';
+    if (i < level) b.className = 'done'; else if (i === level) b.className = 'cur';
+    b.title = '第 ' + (i+1) + ' 关';
+    el.appendChild(b);
+  });
+}
+cv.addEventListener('click', ev => {
+  if (over) return;
+  const r = cv.getBoundingClientRect();
+  const mx = (ev.clientX - r.left)*(W/r.width), my = (ev.clientY - r.top)*(H/r.height);
+  fire(mx, my);
+});
+cv.addEventListener('touchstart', ev => {
+  const t = ev.touches[0], r = cv.getBoundingClientRect();
+  if (over) return;
+  fire((t.clientX - r.left)*(W/r.width), (t.clientY - r.top)*(H/r.height));
+  ev.preventDefault();
+}, {passive:false});
+function fire(mx, my){
+  const ang = Math.atan2(my - (H-20), mx - W/2);
+  neutrons.push({x: W/2, y: H-30, vx: Math.cos(ang)*7, vy: Math.sin(ang)*7, life: 300});
+  renderHud();
+}
+function insertRod(){
+  if (rodCd > 0 || over) return;
+  neutrons = []; rodCd = 8;
+  heat = Math.max(0, heat - 15);
+  document.getElementById('msg').textContent = '🧱 控制棒插入！中子被吸收，温度下降。';
+  setTimeout(() => { if (!over) document.getElementById('msg').textContent = ''; }, 1500);
+}
+function inBlock(x, y){
+  return blocks.some(b => x > b.x && x < b.x + b.w && y > b.y && y < b.y + b.h);
+}
+function physStep(){
+  if (over) return;
+  if (rodCd > 0) rodCd--;
+  document.getElementById('rod').disabled = rodCd > 0;
+  for (let i = neutrons.length-1; i >= 0; i--){
+    const n = neutrons[i];
+    n.x += n.vx; n.y += n.vy; n.life--;
+    if (n.x < N_R){ n.x = N_R; n.vx *= -1; }
+    if (n.x > W-N_R){ n.x = W-N_R; n.vx *= -1; }
+    if (n.y < N_R){ n.y = N_R; n.vy *= -1; }
+    if (n.y > H-N_R){ n.y = H-N_R; n.vy *= -1; }
+    if (inBlock(n.x, n.y)){ neutrons.splice(i,1); continue; }
+    if (n.life <= 0){ neutrons.splice(i,1); continue; }
+    for (let j = nuclei.length-1; j >= 0; j--){
+      const u = nuclei[j];
+      if (Math.hypot(u.x-n.x, u.y-n.y) < U_R + N_R){
+        nuclei.splice(j,1); neutrons.splice(i,1);
+        fission(u.x, u.y);
+        break;
+      }
+    }
+  }
+  heat = Math.max(0, heat - 0.12);
+  const L = LEVELS[level];
+  if (heat >= 100){
+    over = true;
+    document.getElementById('msg').textContent = '☢️ 反应堆熔毁！中子太多失控了——这就是为什么需要控制棒。能量 ' + score;
+    hub.finish({ win:false, title:'☢️ 反应堆熔毁',
+      text:'中子太多、热量失控。现实里的核电站靠控制棒吸收多余中子——这正是切尔诺贝利事故的反面教材。',
+      stat:'第 ' + (level+1) + ' 关 · 能量 ' + score + ' / ' + L.goal });
+    return;
+  }
+  if (nuclei.length === 0 && neutrons.length === 0){
+    if (score >= L.goal) winLevel();
+    else {
+      over = true;
+      document.getElementById('msg').textContent = '燃料耗尽。能量 ' + score + ' / ' + L.goal + '，试着让中子多飞一会儿再裂变？';
+      hub.finish({ win:false, title:'燃料耗尽',
+        text:'铀核用光了，能量没到目标。诀窍：让一个中子多弹几次、多引发几次裂变，别急着把中子全打出去。',
+        stat:'第 ' + (level+1) + ' 关 · 能量 ' + score + ' / ' + L.goal });
+    }
+  }
+  renderHud();
+}
+function winLevel(){
+  over = true;
+  const L = LEVELS[level];
+  const ratio = time / L.time;
+  const stars = ratio >= 0.5 ? '★★★ 反应堆大师！' : ratio >= 0.25 ? '★★☆ 干净利落' : '★☆☆ 险胜';
+  document.getElementById('stars').textContent = stars;
+  document.getElementById('msg').textContent = '⚡ 能量达标，核电站并网发电！';
+  if (level === LEVELS.length - 1){
+    hub.finish({ win:true, title:'⚡ 五关全通 · 核电站并网！',
+      text:'一个中子撞裂铀-235，放出 2~3 个新中子——自持链式反应就这么来的。你既让它跑起来，又没让它失控。',
+      stat:'5 关全通 · ' + stars });
+  } else {
+    setTimeout(() => restart(level+1), 1600);
+  }
+}
+function fission(x, y){
+  score += 10; heat += 6;
+  flashes.push({x, y, a: 1});
+  const base = Math.random()*Math.PI*2;
+  const k = 2 + (Math.random() < 0.4 ? 1 : 0);
+  for (let i = 0; i < k; i++){
+    const ang = base + i * (Math.PI*2/k) + Math.random()*0.5;
+    neutrons.push({x, y, vx: Math.cos(ang)*5.5, vy: Math.sin(ang)*5.5, life: 400});
+  }
+}
+function renderHud(){
+  document.getElementById('score').textContent = score;
+  document.getElementById('time').textContent = Math.ceil(time);
+  document.getElementById('n').textContent = neutrons.length;
+  document.getElementById('heatin').style.width = heat + '%';
+}
+function draw(){
+  ctx.clearRect(0, 0, W, H);
+  for (const b of blocks){
+    ctx.fillStyle = '#3c4a58';
+    ctx.fillRect(b.x, b.y, b.w, b.h);
+    ctx.strokeStyle = '#5c6f80'; ctx.lineWidth = 2;
+    ctx.strokeRect(b.x+1, b.y+1, b.w-2, b.h-2);
+    ctx.fillStyle = '#7e93a5'; ctx.font = '11px sans-serif'; ctx.textAlign='center';
+    ctx.fillText('屏蔽', b.x + b.w/2, b.y + b.h/2 + 4);
+  }
+  ctx.fillStyle = '#28536b';
+  ctx.fillRect(W/2-16, H-24, 32, 24);
+  ctx.beginPath(); ctx.arc(W/2, H-24, 16, Math.PI, 0); ctx.fill();
+  ctx.fillStyle = '#4dd0e1';
+  ctx.beginPath(); ctx.arc(W/2, H-28, 6, 0, 7); ctx.fill();
+  for (const u of nuclei){
+    const g = ctx.createRadialGradient(u.x-6, u.y-6, 3, u.x, u.y, U_R);
+    g.addColorStop(0, '#b8f5c9'); g.addColorStop(.5, '#43a86b'); g.addColorStop(1, '#1d5c3a');
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.arc(u.x, u.y, U_R, 0, 7); ctx.fill();
+    ctx.fillStyle = '#0a0f14'; ctx.font = 'bold 10px sans-serif'; ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.fillText('U-235', u.x, u.y);
+  }
+  ctx.fillStyle = '#ffd166';
+  ctx.shadowColor = '#ffd166'; ctx.shadowBlur = 10;
+  for (const n of neutrons){ ctx.beginPath(); ctx.arc(n.x, n.y, N_R, 0, 7); ctx.fill(); }
+  ctx.shadowBlur = 0;
+  for (let i = flashes.length-1; i >= 0; i--){
+    const f = flashes[i];
+    ctx.strokeStyle = 'rgba(255,209,102,' + f.a + ')';
+    ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.arc(f.x, f.y, (1-f.a)*60 + 20, 0, 7); ctx.stroke();
+    f.a -= 0.06;
+    if (f.a <= 0) flashes.splice(i, 1);
+  }
+}
+function loop(){
+  if (!over){
+    physStep();
+    time -= 1/60;
+    if (time <= 0){
+      time = 0; over = true;
+      const L = LEVELS[level];
+      document.getElementById('msg').textContent = '⏰ 时间到！能量 ' + score + ' / ' + L.goal;
+      if (score >= L.goal) winLevel();
+      else hub.finish({ win:false, title:'⏰ 时间到',
+        text:'时间到了，能量还差一点。链式反应的关键是：一次裂变要引发下一次——别让中子白白飞掉。',
+        stat:'第 ' + (level+1) + ' 关 · 能量 ' + score + ' / ' + L.goal });
+    }
+  }
+  draw();
+  requestAnimationFrame(loop);
+}
+restart(0); loop();
+</script>
+</body>
+</html>

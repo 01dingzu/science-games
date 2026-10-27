@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>万物工厂 · 工业流水线</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; user-select:none; }
+  body { background:#26221c; color:#f0e9dc; font-family:"Microsoft YaHei",sans-serif; display:flex; flex-direction:column; align-items:center; min-height:100vh; padding:16px; }
+  h1 { font-size:21px; margin-bottom:2px; }
+  .sub { color:#b0a48e; font-size:13px; margin-bottom:10px; text-align:center; }
+  #prod { font-size:17px; margin-bottom:8px; text-align:center; } #prod b { color:#ffb454; font-size:20px; }
+  #line { display:flex; gap:6px; margin-bottom:14px; flex-wrap:wrap; justify-content:center; max-width:620px; }
+  .station { width:92px; min-height:74px; background:#3a352b; border:2px dashed #6b6049; border-radius:10px; display:flex; flex-direction:column; align-items:center; justify-content:center; font-size:12px; padding:6px; text-align:center; position:relative; }
+  .station .ico { font-size:26px; }
+  .station.filled { background:#4a4030; border-style:solid; border-color:#ffb454; }
+  .station .num { position:absolute; top:3px; left:6px; color:#8f8570; font-size:11px; }
+  #palette { display:flex; gap:8px; flex-wrap:wrap; justify-content:center; max-width:620px; min-height:84px; }
+  .chip { background:#4a4030; border:2px solid #6b6049; border-radius:10px; padding:8px 14px; font-size:14px; cursor:pointer; transition:transform .1s; }
+  .chip:hover { transform:scale(1.06); border-color:#ffb454; }
+  .chip.used { opacity:.25; pointer-events:none; }
+  #hud { display:flex; gap:18px; font-size:14px; margin:10px 0; flex-wrap:wrap; justify-content:center; }
+  #hud b { color:#ffb454; }
+  #msg { min-height:26px; font-size:15px; font-weight:bold; margin-bottom:8px; text-align:center; max-width:520px; }
+  #msg.bad { color:#ff7b5c; } #msg.good { color:#8fe388; }
+  button { background:#8a6d3b; color:#fff; border:none; padding:10px 24px; border-radius:8px; font-size:15px; cursor:pointer; }
+  .tip { color:#b0a48e; font-size:12px; margin-top:12px; max-width:500px; text-align:center; line-height:1.7; }
+  @keyframes boom { 0%{background:#ff5c39;} 100%{background:#3a352b;} }
+  .boom { animation:boom .5s; }
+  #stars { font-size:20px; color:#ffb454; letter-spacing:3px; margin-top:6px; min-height:24px; }
+  #curve { display:flex; gap:4px; margin-top:10px; align-items:flex-end; height:26px; }
+  #curve i { display:block; width:22px; background:#4a4335; border-radius:2px 2px 0 0; }
+  #curve i.done { background:#66bb6a; }
+  #curve i.cur { background:#ffb454; }
+</style>
+<script src="hub.js"></script>
+</head>
+<body>
+<h1>🏭 万物工厂</h1>
+<div class="sub">按正确的工业流程，从原料一路加工到成品。点错工序 → 爆炉！</div>
+<div id="prod"></div>
+<div id="line"></div>
+<div id="palette"></div>
+<div id="hud"><span>订单 <b id="round">1</b>/6</span><span>得分 <b id="score">0</b></span><span>安全余量 <b id="lives">♥♥♥</b></span></div>
+<div id="msg"></div>
+<div id="stars"></div>
+<div id="curve"></div>
+<button onclick="skip()">跳过此订单（-50分）</button>
+<div class="tip">从 4 步的水泥到 8 步的锂电池，越往后「看起来也对、其实属于别的产线」的干扰工序越多。<br>顺序就是工艺：烧结必须在高炉前（防堵炉），退火必须在切割前（消内应力）。</div>
+<script>
+"use strict";
+// 难度曲线：4步 → 5步 → 6步 → 6步 → 7步 → 8步；干扰工序 1→2→2→3→3→4
+const ORDERS = [
+  { name:'水泥', icon:'🧱', steps:[
+      ['⛏ 采矿','采出石灰石'],
+      ['🔨 破碎','碎石到合适粒度'],
+      ['🔥 煅烧','1450°C 烧成熟料'],
+      ['📦 粉磨装袋','加石膏磨细出厂']],
+    fakes:[['🔥 熔窑'],['⚙️ 轧钢']] },
+
+  { name:'精酿啤酒', icon:'🍺', steps:[
+      ['🌾 制麦','大麦发芽出酶'],
+      ['🍯 糖化','淀粉转成麦芽糖'],
+      ['🫕 煮沸加花','加啤酒花提苦香'],
+      ['🫧 发酵','酵母吃糖产酒精'],
+      ['🍾 灌装','杀菌后装瓶']],
+    fakes:[['⚙️ 切片'],['♨️ 退火'],['💧 连铸']] },
+
+  { name:'钢锭', icon:'🔩', steps:[
+      ['⛏ 采矿','采出铁矿石'],
+      ['🔥 烧结','矿石结块防堵炉'],
+      ['🏭 高炉炼铁','1500°C 还原出铁水'],
+      ['🌀 转炉炼钢','吹氧降碳成钢'],
+      ['💧 连铸','钢水凝固成坯'],
+      ['⚙️ 轧钢','轧制成钢材']],
+    fakes:[['♨️ 退火'],['🔦 光刻'],['🌾 制麦']] },
+
+  { name:'平板玻璃', icon:'🪟', steps:[
+      ['⛏ 采砂','开采石英砂'],
+      ['🔥 熔窑','1700°C 熔成玻璃液'],
+      ['🌀 成型','浮法漂浮摊平'],
+      ['♨️ 退火','缓慢降温消除内应力'],
+      ['📐 切割','裁成标准尺寸'],
+      ['✅ 质检','检查气泡与瑕疵']],
+    fakes:[['🔥 烧结'],['🌀 转炉炼钢'],['🔦 光刻']] },
+
+  { name:'硅晶圆', icon:'💿', steps:[
+      ['⛏ 采砂','硅砂原料'],
+      ['🔥 提纯','11个9超高纯硅'],
+      ['🌀 拉晶','直拉法长出晶柱'],
+      ['⚙️ 切片','金刚线切成薄片'],
+      ['✨ 抛光','表面抛到镜面级'],
+      ['🔦 光刻','电路图案曝光刻蚀'],
+      ['📦 封装','切割封装出厂']],
+    fakes:[['💧 连铸'],['♨️ 退火'],['🍫 焙烧']] },
+
+  { name:'锂电池', icon:'🔋', steps:[
+      ['⛏ 采锂矿','锂辉石或盐湖卤水'],
+      ['🍫 焙烧','转型成可浸出的锂'],
+      ['🧪 浸出提锂','酸浸萃取出碳酸锂'],
+      ['🎨 正极涂布','浆料涂在铝箔上'],
+      ['🌀 卷绕','正负极+隔膜卷成芯'],
+      ['💉 注液','注入电解液并封口'],
+      ['⚡ 化成','首次充电激活'],
+      ['📊 分容','按容量分级配组']],
+    fakes:[['🔦 光刻'],['🌀 转炉炼钢'],['🫧 发酵'],['📐 切割']] },
+];
+let order, seq, placed, score, lives, round, lock, booms;
+const lineEl = document.getElementById('line');
+function restart(){
+  score = 0; lives = 3; round = 0; booms = 0;
+  document.getElementById('stars').textContent = '';
+  nextOrder();
+}
+function shuffle(a){
+  const b = a.slice();
+  for (let i = b.length-1; i > 0; i--){ const j = Math.floor(Math.random()*(i+1)); [b[i],b[j]] = [b[j],b[i]]; }
+  return b;
+}
+const DIFF = [1,2,3,3,4,5];
+function renderCurve(){
+  const el = document.getElementById('curve');
+  el.innerHTML = '';
+  DIFF.forEach((d, i) => {
+    const b = document.createElement('i');
+    b.style.height = (6 + d*4) + 'px';
+    if (i < round) b.className = 'done'; else if (i === round) b.className = 'cur';
+    b.title = '第 ' + (i+1) + ' 单 · ' + ORDERS[i].name;
+    el.appendChild(b);
+  });
+}
+function nextOrder(){
+  renderCurve();
+  if (round >= ORDERS.length){
+    const star = booms === 0 ? '★★★ 完美产线！' : (booms === 1 ? '★★☆ 干得漂亮' : '★☆☆ 惊险交付');
+    document.getElementById('msg').className = 'good';
+    document.getElementById('msg').textContent = '🎉 六张订单全部交付！最终得分 ' + score;
+    document.getElementById('stars').textContent = star;
+    document.getElementById('prod').textContent = '';
+    lineEl.innerHTML = ''; document.getElementById('palette').innerHTML = '';
+    hub.finish({ win:true, title:'🎉 六单全部交付！',
+      text:'从 4 步的水泥到 8 步的锂电池，六条真实产线你都走通了。顺序就是工艺——顺序错了，轻则出废品，重则炸炉。',
+      stat:'最终得分 ' + score + ' · ' + star });
+    return;
+  }
+  order = ORDERS[round];
+  seq = []; placed = 0; lock = false;
+  document.getElementById('prod').innerHTML = '📋 第 ' + (round+1) + ' 单：生产 <b>' + order.icon + ' ' + order.name + '</b>（' + order.steps.length + ' 道工序）';
+  document.getElementById('msg').textContent = '';
+  renderLine(); renderPalette(); updateHud();
+}
+function renderLine(){
+  lineEl.innerHTML = '';
+  order.steps.forEach((s, i) => {
+    const d = document.createElement('div');
+    d.className = 'station' + (i < placed ? ' filled' : '');
+    const parts = s[0].split(' ');
+    d.innerHTML = '<span class="num">' + (i+1) + '</span><span class="ico">' + (i < placed ? parts[0] : '❓') + '</span><span>' + (i < placed ? parts.slice(1).join(' ') : '待加工') + '</span>';
+    lineEl.appendChild(d);
+  });
+}
+function renderPalette(){
+  const p = document.getElementById('palette');
+  p.innerHTML = '';
+  const items = shuffle(order.steps.concat(order.fakes.slice(0, fakesCount())));
+  items.forEach(s => {
+    const already = seq.includes(s);
+    const d = document.createElement('div');
+    d.className = 'chip' + (already ? ' used' : '');
+    d.textContent = s[0];
+    d.onclick = () => pick(s, d);
+    p.appendChild(d);
+  });
+}
+function fakesCount(){ return [1,2,2,3,3,4][round] || 2; }
+function pick(s, el){
+  if (lock) return;
+  if (s === order.steps[placed]){
+    placed++; seq.push(s); score += 15 + placed * 2;
+    document.getElementById('msg').className = 'good';
+    document.getElementById('msg').textContent = '✔ ' + s[1];
+    renderLine(); renderPalette(); updateHud();
+    if (placed === order.steps.length){
+      lock = true; score += 50 + round * 20;
+      document.getElementById('msg').className = 'good';
+      document.getElementById('msg').textContent = '🎉 ' + order.name + ' 下线！流程完美 +' + (50 + round*20);
+      setTimeout(() => { round++; nextOrder(); }, 1400);
+    }
+  } else {
+    lives--; booms++; score = Math.max(0, score - 20);
+    el.classList.add('boom');
+    document.getElementById('msg').className = 'bad';
+    document.getElementById('msg').textContent = '💥 爆炉！「' + s[0] + '」不属于这条产线的第 ' + (placed+1) + ' 步。真实工厂里这就是事故。';
+    updateHud();
+    setTimeout(() => el.classList.remove('boom'), 500);
+    if (lives <= 0){
+      lock = true;
+      hub.finish({ win:false, title:'💀 工厂停业整顿',
+        text:'三次爆炉，安监部门上门了。下次先看清哪些工序不属于这条产线——干扰项才是后面的主要难度。',
+        stat:'得分 ' + score + ' · 卡在第 ' + (round+1) + ' 单' });
+    }
+  }
+}
+function updateHud(){
+  document.getElementById('score').textContent = score;
+  document.getElementById('lives').textContent = '♥'.repeat(Math.max(0,lives));
+  document.getElementById('round').textContent = Math.min(ORDERS.length, round+1);
+}
+function skip(){ score = Math.max(0, score-50); round++; updateHud(); nextOrder(); }
+restart();
+</script>
+</body>
+</html>

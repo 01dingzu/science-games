@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>线粒体经理 · 细胞能量工厂</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { background:#101418; color:#e8f0e8; font-family:"Microsoft YaHei",sans-serif; display:flex; flex-direction:column; align-items:center; min-height:100vh; padding:16px; }
+  h1 { font-size:21px; margin-bottom:2px; }
+  .sub { color:#8aa08a; font-size:13px; margin-bottom:8px; text-align:center; }
+  #stage { font-size:14px; color:#7ef0c2; margin-bottom:8px; text-align:center; }
+  #stage b { color:#ffd166; }
+  #res { display:grid; grid-template-columns:repeat(2, 220px); gap:8px; margin-bottom:12px; }
+  .card { background:#1c242b; border-radius:10px; padding:10px 14px; font-size:14px; display:flex; justify-content:space-between; align-items:center; }
+  .card b { font-size:18px; }
+  #atp b { color:#ffd166; } #glu b { color:#7ee8fa; } #oxy b { color:#ff8fa3; } #lac b { color:#c792ea; }
+  #lacOver { color:#ff5252 !important; }
+  #btns { display:grid; grid-template-columns:repeat(2, 220px); gap:8px; }
+  button { background:#2b3a45; color:#fff; border:none; padding:12px; border-radius:10px; font-size:14px; cursor:pointer; text-align:left; }
+  button:hover { background:#37505f; }
+  button:disabled { opacity:.4; cursor:not-allowed; }
+  button small { display:block; color:#9fb8c6; font-size:11px; margin-top:3px; }
+  #shop { margin-top:12px; display:flex; gap:8px; flex-wrap:wrap; justify-content:center; }
+  #shop button { background:#3d3564; text-align:center; }
+  #event { min-height:30px; margin-top:12px; font-size:15px; font-weight:bold; color:#ffd166; text-align:center; max-width:460px; }
+  #event.urgent { color:#ff5252; animation:blink .5s infinite alternate; }
+  @keyframes blink { to { opacity:.4; } }
+  #bar { width:460px; max-width:92vw; height:14px; background:#1c242b; border-radius:7px; overflow:hidden; margin-top:10px; }
+  #barIn { height:100%; width:0%; background:linear-gradient(90deg,#ffd166,#ff8fa3); transition:width .3s; }
+  #barTxt { font-size:12px; color:#8aa08a; margin-top:4px; }
+  #curve { display:flex; gap:4px; margin-top:8px; align-items:flex-end; height:26px; }
+  #curve i { display:block; width:24px; background:#1c242b; border-radius:2px 2px 0 0; }
+  #curve i.done { background:#3f8f74; }
+  #curve i.cur { background:#ffd166; }
+  .tip { color:#8aa08a; font-size:12px; margin-top:10px; max-width:470px; text-align:center; line-height:1.7; }
+</style>
+<script src="hub.js"></script>
+</head>
+<body>
+<h1>🧫 线粒体经理</h1>
+<div class="sub">有氧高效但耗氧，无氧救急但产乳酸——乳酸堆到 15 细胞就酸中毒</div>
+<div id="stage"></div>
+<div id="res">
+  <div class="card" id="atp">⚡ ATP <b>0</b></div>
+  <div class="card" id="glu">🍬 葡萄糖 <b>3</b></div>
+  <div class="card" id="oxy">💨 氧气 <b>3</b></div>
+  <div class="card" id="lac">🧪 乳酸 <b>0</b>/15</div>
+</div>
+<div id="btns">
+  <button onclick="eat()">🍬 摄食 <small>葡萄糖 +2</small></button>
+  <button onclick="breathe()">💨 呼吸 <small>氧气 +3</small></button>
+  <button onclick="aerobic()">🔥 有氧呼吸 <small>1糖+6氧 → 30 ATP（高效）</small></button>
+  <button onclick="anaerobic()">🆘 无氧呼吸 <small>1糖 → 3 ATP + 3乳酸（应急）</small></button>
+  <button onclick="rest()">😴 休息排毒 <small>1氧 → 乳酸 −3</small></button>
+  <button onclick="exercise()">🏃 运动任务 <small>消耗 25 ATP，奖励 +健康分</small></button>
+</div>
+<div id="shop">
+  <button onclick="buyMito()">🛒 增殖线粒体 <span id="mitoCost">（80⚡）</span><small>每秒自动有氧 ×数量</small></button>
+  <button onclick="buyGut()">🛒 强化肠道 <span id="gutCost">（120⚡）</span><small>摄食 +3</small></button>
+  <button onclick="buyLung()">🛒 强化心肺 <span id="lungCost">（120⚡）</span><small>呼吸 +5</small></button>
+</div>
+<div id="bar"><div id="barIn"></div></div>
+<div id="barTxt"></div>
+<div id="event"></div>
+<div id="curve"></div>
+<div class="tip">五个阶段：静息 → 进食 → 运动 → 缺氧（氧气减半）→ 分裂。每过一关，线粒体数量 +1。<br>缺氧期是关键转折：氧气不够用，只能靠无氧顶上，再用「休息排毒」把乳酸排掉。</div>
+<script>
+"use strict";
+// 难度曲线：教学 → 消耗加剧 → 任务压力 → 新机制(缺氧) → 终局
+const STAGES = [
+  { name:'静息期',   goal:100,  oxyMul:1,   events:[],                 tip:'先摸清三件事：摄食补糖、呼吸补氧、有氧呼吸换 ATP' },
+  { name:'进食期',   goal:300,  oxyMul:1,   events:['hunger'],         tip:'细胞在长大，葡萄糖会被悄悄抽走' },
+  { name:'运动期',   goal:500,  oxyMul:1,   events:['rush'],           tip:'紧急任务出现：限时内攒够 ATP' },
+  { name:'缺氧期',   goal:700,  oxyMul:0.4, events:['rush','hunger'],  tip:'新机制：氧气供给只剩 4 成，无氧 + 排毒成主力' },
+  { name:'分裂期',   goal:1000, oxyMul:0.7, events:['rush','hunger'],  tip:'终局：所有机制一起上，冲到细胞分裂' },
+];
+const DIFF = [1,2,3,4,5];
+let atp, lifetime, glu, oxy, lac, mito, gutLv, lungLv, event, eventTimer, running, over, stage;
+function restart(s){
+  stage = Math.max(0, Math.min(STAGES.length-1, s === undefined ? 0 : s));
+  atp = 5; lifetime = 0; glu = 3; oxy = 3; lac = 0;
+  mito = 1 + Math.max(0, stage - 1); gutLv = 1; lungLv = 1;
+  event = null; eventTimer = 0; running = true; over = false;
+  document.getElementById('event').className = '';
+  renderStage();
+  showEv('第 ' + (stage+1) + ' 阶段 · ' + STAGES[stage].name + '：' + STAGES[stage].tip, true);
+  renderCurve(); render();
+  if (!loop._started){ loop._started = true; loop(); }
+}
+function renderCurve(){
+  const el = document.getElementById('curve');
+  el.innerHTML = '';
+  DIFF.forEach((d, i) => {
+    const b = document.createElement('i');
+    b.style.height = (6 + d*4) + 'px';
+    if (i < stage) b.className = 'done'; else if (i === stage) b.className = 'cur';
+    b.title = '第 ' + (i+1) + ' 阶段';
+    el.appendChild(b);
+  });
+}
+function renderStage(){
+  const S = STAGES[stage];
+  document.getElementById('stage').innerHTML = '第 <b>' + (stage+1) + '</b>/5 阶段 · <b>' + S.name + '</b> — 目标累计产能 ' + S.goal + ' ATP';
+  document.getElementById('barTxt').textContent = '累计产能 ' + Math.floor(lifetime) + ' / ' + S.goal + ' ATP（本阶段）';
+}
+function fmt(n){ return Math.floor(n); }
+function render(){
+  document.querySelector('#atp b').textContent = fmt(atp);
+  document.querySelector('#glu b').textContent = fmt(glu);
+  document.querySelector('#oxy b').textContent = fmt(oxy);
+  const lacEl = document.querySelector('#lac b');
+  lacEl.textContent = fmt(lac);
+  lacEl.id = lac >= 10 ? 'lacOver' : '';
+  const S = STAGES[stage];
+  document.getElementById('barIn').style.width = Math.min(100, lifetime/S.goal*100) + '%';
+  document.getElementById('mitoCost').textContent = '（' + mitoCost() + '⚡）';
+  document.getElementById('gutCost').textContent = '（' + gutCost() + '⚡）';
+  document.getElementById('lungCost').textContent = '（' + lungCost() + '⚡）';
+  document.getElementById('barTxt').textContent = '累计产能 ' + Math.floor(lifetime) + ' / ' + S.goal + ' ATP（本阶段）';
+}
+const mitoCost = () => 80 * Math.pow(2, mito-1);
+const gutCost = () => 120 * gutLv;
+const lungCost = () => 120 * lungLv;
+function eat(){ if(!running) return; glu += 2 + gutLv - 1; render(); }
+function breathe(){
+  if(!running) return;
+  const base = 3 + (lungLv-1)*2;
+  oxy += Math.max(1, Math.round(base * STAGES[stage].oxyMul));
+  render();
+}
+function aerobic(){
+  if(!running || glu < 1 || oxy < 6) return showEv('原料不足：需要 1 葡萄糖 + 6 氧气', false);
+  glu--; oxy -= 6; atp += 30; lifetime += 30; checkStage(); render();
+}
+function anaerobic(){
+  if(!running || glu < 1) return showEv('没有葡萄糖可用', false);
+  glu--; atp += 3; lifetime += 3; lac += 3;
+  checkLac(); checkStage(); render();
+}
+function rest(){
+  if(!running || lac <= 0) return;
+  if (oxy < 1) return showEv('排毒需要氧气（氧债！）', false);
+  oxy--; lac = Math.max(0, lac - 3); atp += 2; render();
+}
+function exercise(){
+  if(!running) return;
+  if (atp < 25) return showEv('ATP 不足 25，细胞瘫了，先产能！', false);
+  atp -= 25; lac += Math.random() < 0.5 ? 2 : 0;
+  showEv('🏃 运动完成！细胞健康 +1' + (lac >= 2 ? '（无氧代谢产生了乳酸，有点酸…）' : ''), true);
+  checkLac(); render();
+}
+function checkLac(){
+  if (lac >= 15){
+    running = false; over = true;
+    showEv('☠️ 乳酸堆积过多，细胞酸中毒死亡！', false);
+    document.getElementById('event').style.color = '#ff5252';
+    hub.finish({ win:false, title:'☠️ 乳酸酸中毒',
+      text:'乳酸堆到 15，细胞酸中毒死亡。无氧呼吸救急可以，一直靠它就出事——这就是跑完长跑肌肉酸痛的由来。',
+      stat:'倒在第 ' + (stage+1) + ' 阶段 · 累计产能 ' + Math.floor(lifetime) + ' ATP' });
+  }
+}
+function checkStage(){
+  const S = STAGES[stage];
+  if (lifetime < S.goal || over) return;
+  if (stage === STAGES.length - 1){
+    running = false; over = true;
+    showEv('🎉 累计产能 1000 ATP，细胞一分为二！你是最强的线粒体经理！', true);
+    document.getElementById('event').style.color = '#7ef0c2';
+    hub.finish({ win:true, title:'🎉 细胞一分为二！',
+      text:'五个阶段全部走完。有氧呼吸 1 分子葡萄糖产约 30 ATP，无氧只有 2 —— 效率差 15 倍，这就是线粒体值得存在的理由。',
+      stat:'累计产能 ' + Math.floor(lifetime) + ' ATP' });
+    return;
+  }
+  mito++;
+  showEv('✅ ' + S.name + ' 完成！线粒体增殖 +1（现在 ' + mito + ' 个），进入下一阶段。', true);
+  setTimeout(() => restart(stage+1), 1500);
+}
+function showEv(text, good){
+  const el = document.getElementById('event');
+  el.textContent = text;
+  el.className = good ? '' : 'urgent';
+}
+function loop(){
+  if (!running) { render(); setTimeout(loop, 1000); return; }
+  for (let i = 0; i < mito; i++){
+    if (glu >= 1 && oxy >= 6){ glu--; oxy -= 6; atp += 30; lifetime += 30; }
+  }
+  const evs = STAGES[stage].events;
+  if (evs.includes('hunger') && Math.random() < 0.2){
+    glu = Math.max(0, glu - 1);
+  }
+  if (evs.includes('rush') && eventTimer <= 0 && Math.random() < 0.15){
+    event = 'rush'; eventTimer = 12;
+    showEv('⚡ 紧急任务！12 秒内攒够 60 ATP，奖励 100 ATP 等值健康！', true);
+  }
+  if (event === 'rush'){
+    eventTimer--;
+    if (atp >= 60){
+      atp -= 60; lifetime += 100; event = null;
+      showEv('✅ 任务完成！细胞分泌信号蛋白，全身舒坦。', true);
+      checkStage();
+    } else if (eventTimer <= 0){
+      event = null; lac += 2;
+      showEv('⏰ 任务超时，细胞缺氧压力上升（乳酸+2）', false);
+      checkLac();
+    }
+  }
+  checkLac(); checkStage(); render();
+  setTimeout(loop, 1000);
+}
+function buyMito(){ if(atp >= mitoCost()){ atp -= mitoCost(); mito++; render(); } }
+function buyGut(){ if(atp >= gutCost()){ atp -= gutCost(); gutLv++; render(); } }
+function buyLung(){ if(atp >= lungCost()){ atp -= lungCost(); lungLv++; render(); } }
+restart(0);
+</script>
+</body>
+</html>

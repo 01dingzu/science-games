@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>光的迷宫 · 反射与折射</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; user-select:none; }
+  body { background:#0d1026; color:#e8ecf5; font-family:"Microsoft YaHei",sans-serif; display:flex; flex-direction:column; align-items:center; min-height:100vh; padding:16px; }
+  h1 { font-size:21px; margin-bottom:2px; }
+  .sub { color:#8fa3c8; font-size:13px; margin-bottom:8px; }
+  canvas { background:#131838; border-radius:12px; cursor:pointer; touch-action:manipulation; }
+  #hud { display:flex; gap:16px; font-size:13px; margin-top:10px; flex-wrap:wrap; justify-content:center; }
+  #hud b { color:#ffd166; }
+  #hud .dim { color:#9db2d0; }
+  #msg { min-height:24px; margin-top:8px; font-size:14px; font-weight:bold; color:#7ee8fa; text-align:center; max-width:440px; }
+  #btns { margin-top:8px; display:flex; gap:10px; }
+  button { background:#2a3468; color:#fff; border:none; padding:9px 20px; border-radius:8px; font-size:14px; cursor:pointer; }
+  button:hover { background:#36447f; }
+  .tip { color:#8fa3c8; font-size:12px; margin-top:10px; max-width:460px; text-align:center; line-height:1.7; }
+  #curve { display:flex; gap:4px; margin-top:12px; align-items:flex-end; height:28px; }
+  #curve i { display:block; width:18px; background:#2a3468; border-radius:2px 2px 0 0; }
+  #curve i.done { background:#3f8f74; }
+  #curve i.cur { background:#ffd166; }
+</style>
+<script src="hub.js"></script>
+</head>
+<body>
+<h1>🔦 光的迷宫</h1>
+<div class="sub">点击空格放镜子（╱ → ╲ → 撤掉），把激光送进水晶</div>
+<canvas id="cv" width="440" height="352"></canvas>
+<div id="hud">
+  <span>第 <b id="lv">1</b>/8 关 · <span class="dim" id="lvname"></span></span>
+  <span>镜子 <b id="mleft">0</b>/<b id="mtot">0</b></span>
+</div>
+<div id="msg"></div>
+<div id="btns"><button onclick="loadLevel(level-1)">⬅ 上一关</button><button onclick="loadLevel(level+1)">下一关 ➡</button></div>
+<div id="curve"></div>
+<div class="tip">反射角 = 入射角。╱ 镜：向右的光变向上；╲ 镜：向右的光变向下。灰块是墙（吸收光），带框的是固定镜（不能动）。<br>每关镜子数量有限——省着用，这就是光路规划。</div>
+<script>
+"use strict";
+const cv = document.getElementById('cv'), ctx = cv.getContext('2d');
+const COLS = 10, ROWS = 8, CELL = 44;
+// cell: 0 空 | 1 墙 | 3 玩家╱ | 4 玩家╲ | 5 固定╱ | 6 固定╲
+// 曲线：教学 → 墙 → 固定镜 → 喘息(绕圈) → 镜数限制 → 组合 → 双水晶 → 终局
+const LEVELS = [
+  { name:'第一束光', hint:'放一面 ╲ 镜，让光拐向水晶',
+    em:[0,1,0], tg:[[7,5]], mir:2, rows:[
+    '0000000000','0000000000','0000000000','0000000000',
+    '0000000000','0000000000','0000000000','0000000000'] },
+
+  { name:'撞墙前拐弯', hint:'光撞墙就被吸收，得在墙前面提前拐',
+    em:[0,0,0], tg:[[5,6]], mir:3, rows:[
+    '0000111100','0000000000','0000000000','0000000000',
+    '0000000000','0000000000','0000000000','0000000000'] },
+
+  { name:'借固定镜的力', hint:'带框的固定镜不能动，你得顺着它走',
+    em:[0,1,0], tg:[[9,4]], mir:2, rows:[
+    '0000000000','0000006000','0000000000','0000000000',
+    '0000000000','0000000000','0000000000','0000000000'] },
+
+  { name:'绕它一圈', hint:'松弛关：沿边框绕一大圈，像光纤里的全反射',
+    em:[0,0,0], tg:[[0,3]], mir:4, rows:[
+    '0000000000','0000000000','0000000000','0000000000',
+    '0000000000','0000000000','0000000000','0000000000'] },
+
+  { name:'镜子不够花', hint:'只剩 2 面镜，而且第 4 列被墙封死了',
+    em:[0,4,0], tg:[[4,0]], mir:2, rows:[
+    '0000000000','0000100000','0000100000','0000100000',
+    '0000000000','0000000000','0000000000','0000000000'] },
+
+  { name:'墙与固定镜', hint:'先上到固定镜那一列，再向右找水晶',
+    em:[0,6,0], tg:[[7,5]], mir:3, rows:[
+    '0000000000','0000000000','0050000000','0000000000',
+    '0000000000','0000000000','0001111000','0000000000'] },
+
+  { name:'两颗水晶', hint:'新机制：一束光要依次穿过两颗水晶',
+    em:[0,0,0], tg:[[3,3],[8,6]], mir:3, rows:[
+    '0000000000','0000000000','0000000000','0000000000',
+    '0000000000','0000000000','0000000000','0000000000'] },
+
+  { name:'终局光路', hint:'综合关：固定镜 + 双水晶，镜子只有 4 面',
+    em:[0,7,0], tg:[[6,6],[9,5]], mir:4, rows:[
+    '0000000000','0000000000','0000006000','0000000000',
+    '0000000110','0000000000','0000000000','0000000000'] },
+];
+const DIFF = [1,2,2,1,3,4,3,5];
+let grid, level, won, hits;
+function loadLevel(i){
+  level = Math.max(0, Math.min(LEVELS.length-1, i));
+  const L = LEVELS[level];
+  grid = L.rows.map(r => r.split('').map(Number));
+  won = false; hits = new Set();
+  document.getElementById('lv').textContent = level+1;
+  document.getElementById('lvname').textContent = L.name;
+  document.getElementById('msg').textContent = L.hint;
+  renderCurve(); trace(); draw(); updateHud();
+}
+function renderCurve(){
+  const el = document.getElementById('curve');
+  el.innerHTML = '';
+  DIFF.forEach((d, i) => {
+    const b = document.createElement('i');
+    b.style.height = (6 + d*4) + 'px';
+    if (i < level) b.className = 'done';
+    else if (i === level) b.className = 'cur';
+    b.title = '第 ' + (i+1) + ' 关';
+    el.appendChild(b);
+  });
+}
+function usedMirrors(){
+  let n = 0;
+  for (const row of grid) for (const c of row) if (c === 3 || c === 4) n++;
+  return n;
+}
+function updateHud(){
+  const L = LEVELS[level];
+  document.getElementById('mleft').textContent = L.mir - usedMirrors();
+  document.getElementById('mtot').textContent = L.mir;
+}
+cv.addEventListener('click', ev => {
+  if (won) return;
+  const r = cv.getBoundingClientRect();
+  const x = Math.floor((ev.clientX - r.left) / (r.width/COLS));
+  const y = Math.floor((ev.clientY - r.top) / (r.height/ROWS));
+  if (x<0||y<0||x>=COLS||y>=ROWS) return;
+  const c = grid[y][x];
+  if (c === 0){
+    if (usedMirrors() >= LEVELS[level].mir){
+      document.getElementById('msg').textContent = '本关只有 ' + LEVELS[level].mir + ' 面镜 —— 点已有的镜子可以旋转或撤掉重放。';
+      return;
+    }
+    grid[y][x] = 3;
+  } else if (c === 3) grid[y][x] = 4;
+  else if (c === 4) grid[y][x] = 0;
+  else { document.getElementById('msg').textContent = '这里是墙或固定镜，动不了。'; return; }
+  trace(); draw(); updateHud();
+  if (won){
+    document.getElementById('msg').textContent = '✨ 光路打通！入射角 = 反射角。';
+    if (level === LEVELS.length - 1){
+      setTimeout(() => hub.finish({ win:true, title:'🎆 八关全通！',
+        text:'反射、绕障、借力、省镜子、串双目标——光纤通信、潜望镜、激光腔，全靠这一条定律撑着。',
+        stat:'8 关全亮 · 光的迷宫已通关' }), 1100);
+    } else {
+      setTimeout(() => loadLevel(level+1), 1100);
+    }
+  }
+});
+function trace(){
+  hits = new Set(); won = false;
+  const L = LEVELS[level];
+  let [x, y, dir] = L.em;
+  const path = [[x, y]];
+  let steps = 0;
+  while (steps++ < 500){
+    dir = stepCell(x, y, dir);
+    if (dir === -1) break;
+    x += [1,0,-1,0][dir]; y += [0,1,0,-1][dir];
+    if (x<0||y<0||x>=COLS||y>=ROWS) break;
+    path.push([x,y]);
+    L.tg.forEach((t, i) => { if (t[0] === x && t[1] === y) hits.add(i); });
+    if (hits.size === L.tg.length){ won = true; break; }
+  }
+  cv._path = path; cv._em = L.em;
+}
+function stepCell(x, y, dir){
+  if (x<0||y<0||x>=COLS||y>=ROWS) return -1;
+  const c = grid[y][x];
+  if (c === 1) return -1;
+  if (c === 3 || c === 5) return [3,2,1,0][dir];
+  if (c === 4 || c === 6) return [1,0,3,2][dir];
+  return dir;
+}
+function draw(){
+  ctx.clearRect(0,0,cv.width,cv.height);
+  const L = LEVELS[level];
+  for (let y = 0; y < ROWS; y++){
+    for (let x = 0; x < COLS; x++){
+      const c = grid[y][x];
+      const px = x*CELL, py = y*CELL;
+      if (c === 1){
+        ctx.fillStyle = '#3a4260'; ctx.fillRect(px+1, py+1, CELL-2, CELL-2);
+      } else if (c >= 3){
+        ctx.strokeStyle = c >= 5 ? '#9aa8d8' : '#cfd8ff';
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        if (c === 3 || c === 5){ ctx.moveTo(px+6, py+CELL-6); ctx.lineTo(px+CELL-6, py+6); }
+        else { ctx.moveTo(px+6, py+6); ctx.lineTo(px+CELL-6, py+CELL-6); }
+        ctx.stroke();
+        if (c >= 5){ ctx.strokeStyle = '#54608f'; ctx.lineWidth = 1; ctx.strokeRect(px+3, py+3, CELL-6, CELL-6); }
+      }
+      ctx.strokeStyle = 'rgba(255,255,255,.05)'; ctx.lineWidth = 1;
+      ctx.strokeRect(px, py, CELL, CELL);
+    }
+  }
+  const path = cv._path || [];
+  ctx.strokeStyle = won ? '#7ef0c2' : '#ff4d6d';
+  ctx.lineWidth = 3; ctx.shadowColor = ctx.strokeStyle; ctx.shadowBlur = 8;
+  ctx.beginPath();
+  path.forEach(([x,y], i) => {
+    const cx = x*CELL+CELL/2, cy = y*CELL+CELL/2;
+    i === 0 ? ctx.moveTo(cx, cy) : ctx.lineTo(cx, cy);
+  });
+  ctx.stroke();
+  ctx.shadowBlur = 0;
+  const [ex, ey] = L.em;
+  ctx.fillStyle = '#ff4d6d';
+  ctx.beginPath(); ctx.arc(ex*CELL+CELL/2, ey*CELL+CELL/2, 12, 0, 7); ctx.fill();
+  ctx.fillStyle = '#0d1026'; ctx.font = 'bold 10px sans-serif'; ctx.textAlign='center'; ctx.textBaseline='middle';
+  ctx.fillText('光', ex*CELL+CELL/2, ey*CELL+CELL/2);
+  L.tg.forEach((t, i) => {
+    const lit = hits.has(i);
+    ctx.fillStyle = lit ? '#7ef0c2' : '#ffd166';
+    ctx.beginPath();
+    ctx.moveTo(t[0]*CELL+CELL/2, t[1]*CELL+8);
+    ctx.lineTo(t[0]*CELL+10, t[1]*CELL+CELL-8);
+    ctx.lineTo(t[0]*CELL+CELL-10, t[1]*CELL+CELL-8);
+    ctx.closePath(); ctx.fill();
+  });
+}
+loadLevel(0);
+</script>
+</body>
+</html>

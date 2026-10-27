@@ -1,0 +1,48 @@
+
+[PASS] 光的迷宫：关卡数 = 8 且设计解全部可通
+  - 第 1 关 ✓ 需 1 面镜 / 额度 2
+  - 第 2 关 ✓ 需 2 面镜 / 额度 3
+  - 第 3 关 ✓ 需 1 面镜 / 额度 2
+  - 第 4 关 ✓ 需 3 面镜 / 额度 4
+  - 第 5 关 ✓ 需 2 面镜 / 额度 2
+  - 第 6 关 ✓ 需 2 面镜 / 额度 3
+  - 第 7 关 ✓ 需 2 面镜 / 额度 3
+  - 第 8 关 ✓ 需 3 面镜 / 额度 4
+
+[PASS] 1-fusion 关卡表 LEVELS
+  - LEVELS 共 6 关/阶段
+
+[PASS] 2-valence 关卡表 LEVELS
+  - LEVELS 共 6 关/阶段
+
+[PASS] 3-bacteria 关卡表 LEVELS
+  - LEVELS 共 4 关/阶段
+
+[PASS] 4-mito 关卡表 STAGES
+  - STAGES 共 5 关/阶段
+
+[PASS] 5-bridge 关卡表 LEVELS
+  - LEVELS 共 5 关/阶段
+
+[PASS] 6-factory 关卡表 ORDERS
+  - ORDERS 共 6 关/阶段
+
+[PASS] 9-fission 关卡表 LEVELS
+  - LEVELS 共 5 关/阶段
+
+[PASS] 10-chip 关卡表 CHAPTERS
+  - CHAPTERS 共 4 关/阶段
+
+[PASS] 万物工厂：工序数递增（难度梯度）
+  - 各单工序数: 4,5,6,6,7,8
+
+[PASS] 分子弹球：目标能量递增
+  - 各关目标: 100,260,420,520,640
+
+[PASS] 元素炼金塔：目标元素递进
+  - 各关目标: 1,2,2,3,3,5
+
+[PASS] 线粒体经理：阶段目标递增
+  - 各阶段目标: 100,300,500,700,1000
+
+SUMMARY: 13 pass / 0 fail

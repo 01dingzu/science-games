@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>物化生工业科普小游戏 · 十连发</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { background:#101828; color:#eef2f7; font-family:"Microsoft YaHei",sans-serif; padding:32px 16px; }
+  .wrap { max-width:880px; margin:0 auto; }
+  h1 { font-size:26px; margin-bottom:6px; }
+  .sub { color:#8fa3c8; margin-bottom:18px; font-size:14px; }
+  #prog { display:flex; align-items:center; gap:12px; margin-bottom:22px; font-size:13px; color:#9db2d0; flex-wrap:wrap; }
+  #progbar { width:280px; max-width:50vw; height:7px; background:#1a2740; border-radius:4px; overflow:hidden; }
+  #progfill { display:block; height:100%; width:0; background:linear-gradient(90deg,#ffd166,#7ee8b0); transition:width .35s; }
+  #reset { color:#5b6f8f; font-size:12px; text-decoration:none; }
+  #reset:hover { color:#9db2d0; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(260px, 1fr)); gap:14px; }
+  a.card { display:block; background:#1a2740; border-radius:14px; padding:18px; text-decoration:none; color:inherit; transition:transform .15s, background .15s; border:1px solid #263a5e; }
+  a.card:hover { transform:translateY(-3px); background:#22335a; }
+  a.card.cleared { border-color:#2f6b4d; background:#182b38; }
+  .card .ico { font-size:30px; }
+  .card h2 { font-size:17px; margin:8px 0 4px; }
+  .card p { font-size:13px; color:#9db2d0; line-height:1.6; }
+  .tag { display:inline-block; font-size:11px; padding:2px 8px; border-radius:10px; margin-top:8px; margin-right:4px; }
+  .t-phy { background:#1e3a5f; color:#7ec8fa; } .t-che { background:#3d2f56; color:#c9a2ff; }
+  .t-bio { background:#1e4030; color:#7ee8b0; } .t-ind { background:#4a3520; color:#ffc078; }
+  .done { display:none; font-size:11px; padding:2px 8px; border-radius:10px; background:#1e4030; color:#7ee8b0; margin-left:4px; }
+  a.card.cleared .done { display:inline-block; }
+  .ref { font-size:11px; color:#5b6f8f; margin-top:6px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>🔬 物化生工业科普小游戏 · 十连发</h1>
+  <div class="sub">十个方向，每个都借了市面上好玩游戏的壳。全部单文件、零依赖、点开即玩。游戏内右上角随时可回本页。</div>
+  <div id="prog">
+    <span id="progtxt">已通关 0/10</span>
+    <div id="progbar"><i id="progfill"></i></div>
+    <a href="#" id="reset">清除通关记录</a>
+  </div>
+  <div class="grid">
+    <a class="card" href="1-fusion.html"><div class="ico">☀️</div><h2>元素炼金塔</h2><p>合成大西瓜式物理合成：同种元素相撞聚变，一路炼到铁触发超新星。</p><span class="tag t-phy">物理 · 核聚变</span><span class="done">✓ 已通关</span><div class="ref">对标：合成大西瓜</div></a>
+    <a class="card" href="2-valence.html"><div class="ico">⚗️</div><h2>化学反应连连杀</h2><p>点选离子配平电荷，守恒才能成键消除——化合价规则玩着就会。</p><span class="tag t-che">化学 · 化合价</span><span class="done">✓ 已通关</span><div class="ref">对标：连连看 / 2048</div></a>
+    <a class="card" href="3-bacteria.html"><div class="ico">🦠</div><h2>细菌帝国</h2><p>反向瘟疫公司：益生菌肠道争霸，扩张要克制，免疫警戒太高会被清场。</p><span class="tag t-bio">生物 · 微生态</span><span class="done">✓ 已通关</span><div class="ref">对标：瘟疫公司</div></a>
+    <a class="card" href="4-mito.html"><div class="ico">🧫</div><h2>线粒体经理</h2><p>细胞能量放置游戏：有氧高效耗氧、无氧救急产乳酸，酸痛的原理在这里。</p><span class="tag t-bio">生物 · 细胞呼吸</span><span class="done">✓ 已通关</span><div class="ref">对标：放置类 / 挂机</div></a>
+    <a class="card" href="5-bridge.html"><div class="ico">🌉</div><h2>桥梁工程师</h2><p>真实 Verlet 物理桁架：预算内造桥，梁变红就是快断了，卡车压上去见真章。</p><span class="tag t-ind">工业 · 受力分析</span><span class="done">✓ 已通关</span><div class="ref">对标：Poly Bridge</div></a>
+    <a class="card" href="6-factory.html"><div class="ico">🏭</div><h2>万物工厂</h2><p>工业流程排序：钢、玻璃、晶圆的真实工序，点错就爆炉。</p><span class="tag t-ind">工业 · 生产流程</span><span class="done">✓ 已通关</span><div class="ref">对标：戴森球计划（轻量）</div></a>
+    <a class="card" href="7-optics.html"><div class="ico">🔦</div><h2>光的迷宫</h2><p>光学解谜：摆镜子折射激光击中水晶，玩通就懂了反射定律和光纤原理。</p><span class="tag t-phy">物理 · 光学</span><span class="done">✓ 已通关</span><div class="ref">对标：Hue / 光学解谜</div></a>
+    <a class="card" href="8-vaccine.html"><div class="ico">💉</div><h2>疫苗工厂</h2><p>和病毒变异赛跑的周经营：研发匹配、产能、质检、公关四线平衡。</p><span class="tag t-bio">生物+工业 · 流程管理</span><span class="done">✓ 已通关</span><div class="ref">对标：瘟疫公司反向 / 经营</div></a>
+    <a class="card" href="9-fission.html"><div class="ico">⚛️</div><h2>分子弹球</h2><p>弹射中子轰铀-235，链式裂变清屏；中子放太多会熔毁，要学会插控制棒。</p><span class="tag t-phy">物理 · 核裂变</span><span class="done">✓ 已通关</span><div class="ref">对标：愤怒的小鸟 × 弹球</div></a>
+    <a class="card" href="10-chip.html"><div class="ico">🖥️</div><h2>半导体小镇</h2><p>芯片厂季度经营：提纯 11 个 9、赌先进制程、卷良率——芯片战争模拟器。</p><span class="tag t-ind">工业 · 半导体</span><span class="done">✓ 已通关</span><div class="ref">对标：波西亚时光 / 经营策略</div></a>
+  </div>
+</div>
+<script>
+(function(){
+  var KEY = 'sciGamesCleared';
+  var cards = document.querySelectorAll('a.card');
+  function load(){ try { return JSON.parse(localStorage.getItem(KEY) || '{}'); } catch(e){ return {}; } }
+  function render(){
+    var s = load(), n = 0;
+    cards.forEach(function(c){
+      var id = (c.getAttribute('href') || '').replace(/\.html$/i, '').toLowerCase();
+      if (s[id]) { c.classList.add('cleared'); n++; } else { c.classList.remove('cleared'); }
+    });
+    document.getElementById('progfill').style.width = (n / cards.length * 100) + '%';
+    document.getElementById('progtxt').textContent = '已通关 ' + n + '/' + cards.length;
+  }
+  document.getElementById('reset').onclick = function(e){
+    e.preventDefault();
+    try { localStorage.removeItem(KEY); } catch(err){}
+    render();
+  };
+  render();
+})();
+</script>
+</body>
+</html>

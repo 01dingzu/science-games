@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>化合价消除 · 电荷守恒</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; user-select:none; }
+  body { background:#f2f6fc; color:#1d2733; font-family:"Microsoft YaHei",sans-serif; display:flex; flex-direction:column; align-items:center; min-height:100vh; padding:16px; }
+  h1 { font-size:22px; margin-bottom:4px; }
+  .sub { color:#5b6b80; font-size:13px; margin-bottom:10px; text-align:center; }
+  #hud { display:flex; gap:16px; font-size:14px; margin-bottom:10px; flex-wrap:wrap; justify-content:center; }
+  #hud b { color:#e65100; }
+  #hud .dim { color:#5b6b80; }
+  #grid { display:grid; grid-template-columns:repeat(5, 72px); gap:8px; }
+  .tile { width:72px; height:72px; border-radius:12px; display:flex; flex-direction:column; align-items:center; justify-content:center; font-weight:bold; cursor:pointer; transition:transform .12s, box-shadow .12s; border:2px solid transparent; }
+  .tile .sym { font-size:22px; }
+  .tile .chg { font-size:12px; opacity:.8; }
+  .cation { background:#ffe3e0; color:#c0392b; }
+  .anion { background:#dcefff; color:#1a5276; }
+  .inert { background:#e3e6ea; color:#8a94a0; cursor:not-allowed; }
+  .sel { border-color:#e65100; transform:scale(1.08); box-shadow:0 0 0 3px rgba(230,81,0,.3); }
+  .gone { animation:pop .3s forwards; }
+  @keyframes pop { to { transform:scale(0); opacity:0; } }
+  #msg { min-height:26px; margin-top:12px; font-size:15px; font-weight:bold; color:#2e7d32; text-align:center; max-width:400px; }
+  #msg.err { color:#c0392b; }
+  #formula { font-size:20px; margin-top:4px; color:#4527a0; min-height:28px; font-family:Georgia, serif; }
+  #goalbox { font-size:14px; color:#5b6b80; margin-bottom:6px; text-align:center; }
+  #goalbox b { color:#e65100; }
+  #stars { font-size:20px; color:#ffb454; letter-spacing:3px; min-height:24px; }
+  #curve { display:flex; gap:4px; margin-top:8px; align-items:flex-end; height:26px; }
+  #curve i { display:block; width:20px; background:#d7e0ea; border-radius:2px 2px 0 0; }
+  #curve i.done { background:#66bb6a; }
+  #curve i.cur { background:#ffb454; }
+  button { margin-top:10px; background:#2e7d32; color:#fff; border:none; padding:10px 26px; border-radius:8px; font-size:15px; cursor:pointer; }
+  .tip { color:#5b6b80; font-size:12px; margin-top:10px; max-width:430px; text-align:center; line-height:1.7; }
+</style>
+<script src="hub.js"></script>
+</head>
+<body>
+<h1>⚗️ 化学反应连连杀</h1>
+<div class="sub">点选离子，正负电荷刚好抵消 → 生成化合物并消除</div>
+<div id="hud">
+  <span>第 <b id="lv">1</b>/6 关 · <span class="dim" id="lvname"></span></span>
+  <span>剩余步数 <b id="moves">6</b></span>
+  <span>进度 <b id="prog">0</b>/<b id="need">2</b></span>
+</div>
+<div id="goalbox"></div>
+<div id="grid"></div>
+<div id="formula"></div>
+<div id="msg"></div>
+<div id="stars"></div>
+<div id="curve"></div>
+<button onclick="restart(level)">🔁 重玩本关</button>
+<div class="tip">选中的离子电荷之和必须恰好为 0 才能成键。例如 Ca²⁺ + 2 个 Cl⁻ → CaCl₂。<br>灰色「Ne 氩」是惰性气体，点不动也搭不上——它们只占地方。</div>
+<script>
+"use strict";
+const IONS = [
+  {s:'Na', ch:1}, {s:'K', ch:1}, {s:'H', ch:1},
+  {s:'Ca', ch:2}, {s:'Mg', ch:2},
+  {s:'Al', ch:3},
+  {s:'Cl', ch:-1}, {s:'F', ch:-1},
+  {s:'O', ch:-2}, {s:'S', ch:-2},
+  {s:'N', ch:-3},
+];
+const INERT = {s:'Ne', ch:0, inert:true};
+const NAMES = {'Na':'钠','K':'钾','H':'氢','Ca':'钙','Mg':'镁','Al':'铝','Cl':'氯','F':'氟','O':'氧','S':'硫','N':'氮','Ne':'氖'};
+const NUM = ['', '', '₂','₃','₄','₅','₆','₇','₈'];
+// 难度曲线：1:1 教学 → 1:2 → 2:3 交叉 → 混战 → 惰性障碍 → 终局
+const LEVELS = [
+  { name:'先做点盐',   pool:['Na','Cl'],                             need:2, moves:6,  inert:0, mode:'any', tip:'Na⁺ + Cl⁻ → NaCl，最简单的 1:1' },
+  { name:'一配二',     pool:['Na','Ca','Cl'],                        need:2, moves:8,  inert:0, mode:'any', tip:'Ca²⁺ 要配 2 个 Cl⁻ 才守恒' },
+  { name:'铝与氧',     pool:['Al','O','Na','Cl'],                    need:1, moves:8,  inert:0, mode:'any', tip:'Al₂O₃ = 2 个 Al³⁺ + 3 个 O²⁻（6 = 6）' },
+  { name:'混战',       pool:['Na','K','Ca','Mg','Al','Cl','F','O','S','N'], need:4, moves:12, inert:0, mode:'kinds', tip:'全离子池：合成 4 种不同化合物' },
+  { name:'惰性气体',   pool:['Na','K','Ca','Mg','Al','Cl','F','O','S','N'], need:4, moves:13, inert:3, mode:'kinds', tip:'新机制：氖（Ne）占着格子不反应' },
+  { name:'配平大师',   pool:['Na','K','Ca','Mg','Al','Cl','F','O','S','N'], need:6, moves:16, inert:5, mode:'kinds', tip:'终局：6 种化合物，惰性气体更多' },
+];
+const DIFF = [1,2,2,3,4,5];
+let tiles, sel, score, moves, made, level;
+const gridEl = document.getElementById('grid');
+function poolIons(){ return IONS.filter(i => LEVELS[level].pool.includes(i.s)); }
+function randIon(){
+  const p = poolIons();
+  return p[Math.floor(Math.random()*p.length)];
+}
+function restart(lv){
+  level = Math.max(0, Math.min(LEVELS.length-1, lv === undefined ? 0 : lv));
+  const L = LEVELS[level];
+  tiles = []; sel = new Set(); score = 0; moves = L.moves; made = new Set();
+  const n = 20;
+  for (let i = 0; i < n; i++) tiles.push({ion: randIon(), alive: true});
+  // 保证开局可解：按关卡池塞入几组可配平的组合
+  const seed = [];
+  for (let k = 0; k < 3; k++) seed.push(...seedGroup());
+  seed.forEach((ion, i) => { if (i < n) tiles[i].ion = ion; });
+  // 惰性气体占位
+  const spots = [];
+  while (spots.length < L.inert){ const r = Math.floor(Math.random()*n); if (!spots.includes(r)) spots.push(r); }
+  spots.forEach(i => { tiles[i].ion = INERT; });
+  document.getElementById('lv').textContent = level+1;
+  document.getElementById('lvname').textContent = L.name;
+  document.getElementById('need').textContent = L.need;
+  document.getElementById('goalbox').innerHTML = '目标：' + L.tip;
+  document.getElementById('stars').textContent = '';
+  document.getElementById('formula').textContent = '';
+  document.getElementById('msg').textContent = '';
+  renderCurve(); render(); updateHud();
+}
+function seedGroup(){
+  const avail = LEVELS[level].pool;
+  if (avail.includes('Al') && avail.includes('O')) return [{s:'Al',ch:3},{s:'Al',ch:3},{s:'O',ch:-2},{s:'O',ch:-2},{s:'O',ch:-2}];
+  if (avail.includes('Ca') && avail.includes('Cl')) return [{s:'Ca',ch:2},{s:'Cl',ch:-1},{s:'Cl',ch:-1}];
+  if (avail.includes('Na') && avail.includes('Cl')) return [{s:'Na',ch:1},{s:'Cl',ch:-1}];
+  const p = poolIons();
+  const cation = p.find(i => i.ch > 0) || IONS[0];
+  const anion = p.find(i => i.ch < 0) || IONS[6];
+  const out = [];
+  for (let i = 0; i < Math.abs(anion.ch); i++) out.push(cation);
+  for (let i = 0; i < cation.ch; i++) out.push(anion);
+  return out;
+}
+function renderCurve(){
+  const el = document.getElementById('curve');
+  el.innerHTML = '';
+  DIFF.forEach((d, i) => {
+    const b = document.createElement('i');
+    b.style.height = (6 + d*4) + 'px';
+    if (i < level) b.className = 'done'; else if (i === level) b.className = 'cur';
+    b.title = '第 ' + (i+1) + ' 关';
+    el.appendChild(b);
+  });
+}
+function render(){
+  gridEl.innerHTML = '';
+  tiles.forEach((t, i) => {
+    const d = document.createElement('div');
+    const cls = t.ion.inert ? 'inert' : (t.ion.ch > 0 ? 'cation' : 'anion');
+    d.className = 'tile ' + cls + (sel.has(i) ? ' sel' : '') + (t.alive ? '' : ' gone');
+    if (t.ion.inert){
+      d.innerHTML = '<span class="sym">Ne</span><span class="chg">惰性气体</span>';
+    } else {
+      const sup = t.ion.ch > 0 ? '+' : '−';
+      const abs = Math.abs(t.ion.ch);
+      d.innerHTML = '<span class="sym">' + t.ion.s + '<sup style="font-size:12px">' + (abs>1?abs:'') + sup + '</sup></span><span class="chg">' + NAMES[t.ion.s] + (t.ion.ch>0?'阳离子':'阴离子') + '</span>';
+    }
+    d.onclick = () => click(i);
+    gridEl.appendChild(d);
+  });
+  updateHud();
+}
+function updateHud(){
+  document.getElementById('moves').textContent = moves;
+  document.getElementById('prog').textContent = made.size;
+  document.getElementById('need').textContent = LEVELS[level].need;
+}
+function click(i){
+  const t = tiles[i];
+  if (!t.alive || t.ion.inert) return;
+  if (sel.has(i)){ sel.delete(i); render(); showFormula(); return; }
+  sel.add(i);
+  const sum = [...sel].reduce((a, k) => a + tiles[k].ion.ch, 0);
+  if (sum === 0) react();
+  else { render(); showFormula(); }
+}
+function showFormula(){
+  if (sel.size === 0){ document.getElementById('formula').textContent = ''; return; }
+  const cations = {}, anions = {};
+  [...sel].forEach(k => {
+    const ion = tiles[k].ion;
+    if (ion.ch > 0) cations[ion.s] = (cations[ion.s]||0) + 1;
+    else anions[ion.s] = (anions[ion.s]||0) + 1;
+  });
+  let f = '';
+  for (const s in cations) f += s + (cations[s] > 1 ? NUM[cations[s]] : '');
+  for (const s in anions) f += s + (anions[s] > 1 ? NUM[anions[s]] : '');
+  document.getElementById('formula').textContent = '正在化合：' + f;
+}
+function formulaOf(chosen){
+  const cations = {}, anions = {};
+  chosen.forEach(t => {
+    const ion = t.ion;
+    if (ion.ch > 0) cations[ion.s] = (cations[ion.s]||0) + 1;
+    else anions[ion.s] = (anions[ion.s]||0) + 1;
+  });
+  let f = '';
+  for (const s in cations) f += s + (cations[s] > 1 ? NUM[cations[s]] : '');
+  for (const s in anions) if (anions[s] !== undefined) f += s + (anions[s] > 1 ? NUM[anions[s]] : '');
+  return f;
+}
+function react(){
+  const chosen = [...sel].map(k => tiles[k]);
+  const f = formulaOf(chosen);
+  made.add(f);
+  const combo = chosen.length;
+  const gain = combo * 10 + (combo >= 4 ? 30 : 0);
+  score += gain; moves--;
+  sel.forEach(k => { tiles[k].alive = false; });
+  const msg = document.getElementById('msg');
+  msg.className = '';
+  msg.textContent = '✔ ' + f + ' 电荷守恒！' + (combo >= 4 ? ' 复杂化合物 ×2 奖励！' : '') + ' +' + gain + '分';
+  sel = new Set();
+  setTimeout(() => {
+    tiles.forEach(t => { if (!t.alive && !t.ion.inert) { t.ion = randIon(); t.alive = true; } });
+    render();
+  }, 320);
+  render();
+  checkLevel();
+}
+function checkLevel(){
+  const L = LEVELS[level];
+  const done = L.mode === 'kinds' ? made.size >= L.need : made.size >= L.need;
+  if (done){
+    const ratio = moves / L.moves;
+    const stars = ratio >= 0.4 ? '★★★ 配平大师！' : ratio >= 0.2 ? '★★☆ 干净' : '★☆☆ 险胜';
+    document.getElementById('stars').textContent = stars;
+    if (level === LEVELS.length - 1){
+      hub.finish({ win:true, title:'🏆 化合价全通！',
+        text:'从 1:1 的食盐到 2:3 的氧化铝，再到满屏惰性气体的终局——电荷守恒你已经玩明白了。',
+        stat:'6 关全通 · ' + stars });
+    } else {
+      setTimeout(() => restart(level+1), 1200);
+    }
+    return;
+  }
+  if (moves <= 0){
+    document.getElementById('msg').className = 'err';
+    document.getElementById('msg').textContent = '🏁 步数用尽！合成了 ' + made.size + ' 种 / 需要 ' + L.need + ' 种：' + [...made].join('、');
+    hub.finish({ win:false, title:'⏳ 步数用尽',
+      text:'下一局优先挑「高价离子」（Al³⁺ / O²⁻ / N³⁻）——一次配平能吃掉更多格子，也更省步数。',
+      stat:'第 ' + (level+1) + ' 关 · 合成 ' + made.size + '/' + L.need + ' 种' });
+  }
+}
+restart(0);
+</script>
+</body>
+</html>

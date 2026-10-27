@@ -1,0 +1,42 @@
+
+[PASS] 1-fusion 元素炼金塔
+  - 页面: 1-fusion.html
+  - 发射+聚变 OK score=8
+
+[PASS] 2-valence 化合价消除
+  - 页面: 2-valence.html
+  - NaCl 消除成功 score=20
+
+[PASS] 3-bacteria 细菌帝国
+  - 页面: 3-bacteria.html
+  - 定殖+回合推进 OK
+
+[PASS] 4-mito 线粒体经理
+  - 页面: 4-mito.html
+  - 有氧 +30 ATP OK, glu=11
+
+[PASS] 5-bridge 桥梁工程师
+  - 页面: 5-bridge.html
+  - UI 造梁 OK（预算 850），桁架桥载重通过
+
+[PASS] 6-factory 万物工厂
+  - 页面: 6-factory.html
+  - 订单全流程 OK（4 步）
+
+[PASS] 7-optics 光的迷宫
+  - 页面: 7-optics.html
+  - 第1关通关 OK
+
+[PASS] 8-vaccine 疫苗工厂
+  - 页面: 8-vaccine.html
+  - 周结算推进 OK week=2
+
+[PASS] 9-fission 分子弹球
+  - 页面: 9-fission.html
+  - 链式裂变 OK score=10
+
+[PASS] 10-chip 半导体小镇
+  - 页面: 10-chip.html
+  - 季度结算 OK: 第 1 季度结算：良品 92 万颗，营收 ¥920M，运营成本 ¥100M。
+
+SUMMARY: 10 pass / 0 fail

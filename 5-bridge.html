@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>桥梁工程师 · 桁架受力</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; user-select:none; }
+  body { background:#eef2f5; color:#22303c; font-family:"Microsoft YaHei",sans-serif; display:flex; flex-direction:column; align-items:center; min-height:100vh; padding:14px; }
+  h1 { font-size:21px; margin-bottom:2px; }
+  .sub { color:#5b6b80; font-size:13px; margin-bottom:6px; text-align:center; }
+  #hud { display:flex; gap:18px; font-size:14px; margin-bottom:6px; flex-wrap:wrap; justify-content:center; }
+  #hud b { color:#c62828; }
+  canvas { background:#dfe9ee; border-radius:10px; cursor:crosshair; touch-action:none; }
+  #tools { margin-top:8px; display:flex; gap:8px; flex-wrap:wrap; justify-content:center; }
+  button { border:none; padding:8px 16px; border-radius:8px; font-size:14px; cursor:pointer; color:#fff; }
+  .mat { background:#78909c; }
+  .mat.on { background:#37474f; box-shadow:0 0 0 2px #ffd166; }
+  #go { background:#2e7d32; } #reset { background:#e65100; } #clear { background:#c0392b; }
+  #log { min-height:24px; margin-top:8px; font-size:14px; font-weight:bold; text-align:center; max-width:600px; }
+  #stars { font-size:20px; color:#ffb454; letter-spacing:3px; min-height:24px; }
+  .tip { color:#5b6b80; font-size:12px; margin-top:6px; max-width:600px; text-align:center; line-height:1.7; }
+  #curve { display:flex; gap:4px; margin-top:8px; align-items:flex-end; height:28px; }
+  #curve i { display:block; width:22px; background:#c5d2d9; border-radius:2px 2px 0 0; }
+  #curve i.done { background:#66bb6a; }
+  #curve i.cur { background:#ffb454; }
+</style>
+<script src="hub.js"></script>
+</head>
+<body>
+<h1>🌉 桥梁工程师</h1>
+<div class="sub">预算内造桥，让卡车开过去。五关地形递进：有墩 → 无墩 → 礁石 → 双墩喘息 → 终局</div>
+<div id="hud"><span>第 <b id="lv">1</b>/5 关 · <span id="lvname"></span></span><span>预算 <b id="budget">900</b>¥</span><span>材料 <b id="matName">木梁</b></span></div>
+<canvas id="cv" width="600" height="400"></canvas>
+<div id="tools">
+  <button class="mat on" id="wood" onclick="setMat(0)">🪵 木梁 50¥</button>
+  <button class="mat" id="steel" onclick="setMat(1)">🪨 钢梁 150¥</button>
+  <button class="mat" id="cable" onclick="setMat(2)">🪢 缆索 80¥</button>
+  <button id="go" onclick="test()">🚚 载重测试</button>
+  <button id="reset" onclick="resetTruck()">↩ 复位</button>
+  <button id="clear" onclick="restart(level)">🗑 清空重来</button>
+</div>
+<div id="log"></div>
+<div id="stars"></div>
+<div id="curve"></div>
+<div class="tip">灰色方块是桥墩锚点（固定，免费）。缆索只能受拉，钢梁结实但贵，木梁便宜但软。<br>梁变色 = 受力接近极限：黄 → 橙 → 红（快断了）。三角形是最稳的形状。</div>
+<script>
+"use strict";
+const cv = document.getElementById('cv'), ctx = cv.getContext('2d');
+const W = 600, H = 400;
+const MATS = [
+  {name:'木梁', cost:50,  max:16, c:'#8d6e63', w:5},
+  {name:'钢梁', cost:150, max:38, c:'#546e7a', w:7},
+  {name:'缆索', cost:80,  max:26, c:'#7e57c2', w:2.5, tensionOnly:true},
+];
+// 难度曲线：教学(有墩) → 练习(无墩) → 新机制(礁石禁区) → 喘息(双墩宽裕) → 终局(综合)
+const LEVELS = [
+  { name:'小溪 · 中间有墩', budget:900,  load:4, anchors:[[70,270],[530,270]], piers:[[300,270]], rocks:[] },
+  { name:'河谷 · 无墩',      budget:1300, load:5, anchors:[[70,270],[530,270]], piers:[], rocks:[] },
+  { name:'礁石深谷',        budget:1450, load:6, anchors:[[70,280],[530,280]], piers:[], rocks:[[270,250,350,345]] },
+  { name:'双墩大桥 · 喘息',  budget:1600, load:5, anchors:[[60,270],[540,270]], piers:[[220,270],[380,270]], rocks:[] },
+  { name:'终局 · 峡谷',      budget:1750, load:7, anchors:[[60,280],[540,280]], piers:[], rocks:[[250,240,330,345],[395,300,455,345]] },
+];
+const DIFF = [1,2,3,1,4];
+let nodes, beams, mat, budget, truck, testing, pendingNode, level;
+function restart(lv){
+  level = Math.max(0, Math.min(LEVELS.length-1, lv === undefined ? 0 : lv));
+  const L = LEVELS[level];
+  const fixed = L.anchors.concat(L.piers);
+  nodes = fixed.map(([x,y]) => ({x, y, px:x, py:y, fixed:true}));
+  beams = []; mat = 0; budget = L.budget; truck = null; testing = false; pendingNode = null;
+  document.getElementById('lv').textContent = level+1;
+  document.getElementById('lvname').textContent = L.name;
+  document.getElementById('stars').textContent = '';
+  setLog(L.piers.length ? '中间有免费桥墩，跨度小了很多——先练手。' : '没有中间桥墩了，得靠桁架自己撑。');
+  renderCurve(); draw(); updateHud();
+}
+function renderCurve(){
+  const el = document.getElementById('curve');
+  el.innerHTML = '';
+  DIFF.forEach((d, i) => {
+    const b = document.createElement('i');
+    b.style.height = (6 + d*5) + 'px';
+    if (i < level) b.className = 'done'; else if (i === level) b.className = 'cur';
+    b.title = '第 ' + (i+1) + ' 关';
+    el.appendChild(b);
+  });
+}
+function updateHud(){
+  document.getElementById('budget').textContent = budget;
+  document.getElementById('matName').textContent = MATS[mat].name;
+  document.querySelectorAll('.mat').forEach((b,i) => b.classList.toggle('on', i === mat));
+}
+function setMat(i){ mat = i; pendingNode = null; updateHud(); }
+function snap(v){ return Math.round(v/25)*25; }
+function findNode(x, y){
+  return nodes.findIndex(n => Math.abs(n.x-x) < 14 && Math.abs(n.y-y) < 14);
+}
+function inRock(x, y){
+  return LEVELS[level].rocks.some(r => x >= r[0]-12 && x <= r[2]+12 && y >= r[1]-12 && y <= r[3]);
+}
+function setLog(s){ document.getElementById('log').textContent = s; }
+cv.addEventListener('click', ev => {
+  if (testing) return;
+  const r = cv.getBoundingClientRect();
+  const x = (ev.clientX - r.left) * (W/r.width), y = (ev.clientY - r.top) * (H/r.height);
+  const ni = findNode(x, y);
+  if (pendingNode === null){
+    pendingNode = ni >= 0 ? ni : null;
+    if (ni < 0){
+      const sx = snap(x), sy = snap(y);
+      if (sy < 120 || sy > 340) return;
+      if (inRock(sx, sy)){ setLog('⛰ 那是礁石，不能在上面打桩——绕开它。'); return; }
+      pendingNode = nodes.length;
+      nodes.push({x:sx, y:sy, px:sx, py:sy, fixed:false});
+    }
+    setLog('起点已选，再点终点完成这根' + MATS[mat].name + '。');
+  } else {
+    const a = nodes[pendingNode];
+    let bi = ni >= 0 ? ni : -1;
+    let bx = ni >= 0 ? nodes[ni].x : snap(x);
+    let by = ni >= 0 ? nodes[ni].y : snap(y);
+    if (bi < 0){
+      if (by < 120 || by > 340){ pendingNode = null; setLog('终点太高/太低，取消。'); draw(); return; }
+      if (inRock(bx, by)){ pendingNode = null; setLog('⛰ 礁石上不能打桩。'); draw(); return; }
+      bi = nodes.length;
+      nodes.push({x:bx, y:by, px:bx, py:by, fixed:false});
+    }
+    const dist = Math.hypot(bx-a.x, by-a.y);
+    if (dist < 20){ pendingNode = null; draw(); return; }
+    const m = MATS[mat];
+    if (budget < m.cost){ setLog('💸 预算不足！'); pendingNode = null; draw(); return; }
+    budget -= m.cost;
+    beams.push({a:pendingNode, b:bi, rest:dist, mat, broken:false, stress:0});
+    pendingNode = null;
+    updateHud();
+  }
+  draw();
+});
+function resetTruck(){
+  truck = null; testing = false;
+  beams.forEach(b => b.broken = false);
+  setLog('已复位，可以继续加固桥梁。');
+  draw();
+}
+function test(){
+  if (testing) { resetTruck(); return; }
+  const L = LEVELS[level];
+  testing = true;
+  truck = {x: L.anchors[0][0] + 30, y: 240, vx: 1.1};
+  setLog('🚚 卡车出发！看你的桥扛不扛得住……');
+}
+function physStep(){
+  const L = LEVELS[level];
+  const g = 0.5;
+  for (const n of nodes){
+    if (n.fixed) continue;
+    const vx = (n.x - n.px) * 0.995, vy = (n.y - n.py) * 0.995;
+    n.px = n.x; n.py = n.y;
+    n.x += vx; n.y += vy + g;
+  }
+  if (truck){
+    truck.x += truck.vx;
+    let best = -1, bd = 1e9;
+    for (let i = 0; i < nodes.length; i++){
+      const n = nodes[i];
+      const d = Math.abs(n.x - truck.x);
+      if (n.y > 200 && n.y < 345 && d < bd && d < 40){ bd = d; best = i; }
+    }
+    if (best >= 0){
+      const n = nodes[best];
+      n.y += L.load;
+      truck.y = n.y - 26;
+    } else {
+      truck.y += 5;
+      if (truck.y > H + 40){
+        testing = false; truck = null;
+        setLog('💥 卡车掉下去了！桥面断档——桥面必须连续覆盖从左到右。');
+        hub.finish({ win:false, title:'💥 卡车掉下去了',
+          text:'桥面必须连续覆盖从左到右，还得撑得住重量。三角形是最稳的形状——四边形不加斜撑一定会垮。',
+          stat:'第 ' + (level+1) + ' 关 · 预算剩余 ' + budget + '¥' });
+        return;
+      }
+    }
+    if (truck.x >= L.anchors[1][0] - 20){
+      testing = false; truck = null;
+      const ratio = budget / L.budget;
+      const stars = ratio >= 0.4 ? '★★★ 又稳又省！' : ratio >= 0.2 ? '★★☆ 合格' : '★☆☆ 惊险通过';
+      setLog('🏆 卡车安全过桥！预算剩余 ' + budget + '¥ —— ' + stars);
+      document.getElementById('stars').textContent = stars;
+      if (level === LEVELS.length - 1){
+        hub.finish({ win:true, title:'🏆 五关全部通车！',
+          text:'从有墩小溪到无墩峡谷，你走完了完整的桥梁工程师成长路线。真实的桥永远在"够结实"和"别太贵"之间走钢丝。',
+          stat:'5 关全通 · 终关剩余 ' + budget + '¥' });
+      } else {
+        setTimeout(() => restart(level+1), 1600);
+      }
+      return;
+    }
+  }
+  for (let iter = 0; iter < 8; iter++){
+    for (const b of beams){
+      if (b.broken) continue;
+      const a = nodes[b.a], c = nodes[b.b];
+      const dx = c.x - a.x, dy = c.y - a.y;
+      const d = Math.hypot(dx, dy) || 0.001;
+      const diff = (d - b.rest) / d;
+      const m = MATS[b.mat];
+      if (m.tensionOnly && diff < 0) continue;
+      const half = diff / 2;
+      if (!a.fixed){ a.x += dx*half; a.y += dy*half; }
+      if (!c.fixed){ c.x -= dx*half; c.y -= dy*half; }
+    }
+    for (const n of nodes){ if (!n.fixed && n.y > 345) n.y = 345; }
+  }
+  for (const b of beams){
+    if (b.broken) continue;
+    const a = nodes[b.a], c = nodes[b.b];
+    const d = Math.hypot(c.x-a.x, c.y-a.y);
+    b.stress = Math.abs(d - b.rest);
+    if (b.stress > MATS[b.mat].max){
+      b.broken = true;
+      if (testing) setLog('⚠️ 一根' + MATS[b.mat].name + '断了！受力超限，换钢梁或加斜撑。');
+    }
+  }
+}
+function draw(){
+  const L = LEVELS[level];
+  ctx.clearRect(0, 0, W, H);
+  const [ax0, ay0] = L.anchors[0], [ax1, ay1] = L.anchors[1];
+  ctx.fillStyle = '#9db2a0';
+  ctx.beginPath(); ctx.moveTo(0,ay0); ctx.lineTo(ax0+40,ay0); ctx.lineTo(ax0+40,H); ctx.lineTo(0,H); ctx.fill();
+  ctx.beginPath(); ctx.moveTo(W,ay1); ctx.lineTo(ax1-40,ay1); ctx.lineTo(ax1-40,H); ctx.lineTo(W,H); ctx.fill();
+  ctx.fillStyle = '#7f9484';
+  ctx.fillRect(ax0-20, ay0-20, 40, 20); ctx.fillRect(ax1-20, ay1-20, 40, 20);
+  // 礁石禁区
+  L.rocks.forEach(r => {
+    ctx.fillStyle = '#6b7f8a';
+    ctx.beginPath();
+    ctx.moveTo(r[0], r[3]); ctx.lineTo(r[0]+8, r[1]); ctx.lineTo(r[2]-8, r[1]); ctx.lineTo(r[2], r[3]);
+    ctx.closePath(); ctx.fill();
+    ctx.fillStyle = 'rgba(255,255,255,.25)';
+    ctx.fillRect(r[0]+6, r[1]+8, 12, 4); ctx.fillRect(r[2]-22, r[1]+20, 14, 4);
+  });
+  ctx.strokeStyle = 'rgba(80,110,130,.15)';
+  for (let x = 0; x <= W; x += 25){ ctx.beginPath(); ctx.moveTo(x,120); ctx.lineTo(x,345); ctx.stroke(); }
+  for (let y = 120; y <= 345; y += 25){ ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(W,y); ctx.stroke(); }
+  for (const b of beams){
+    if (b.broken) continue;
+    const a = nodes[b.a], c = nodes[b.b];
+    const ratio = b.stress / MATS[b.mat].max;
+    ctx.strokeStyle = ratio < 0.5 ? MATS[b.mat].c : ratio < 0.8 ? '#e6a817' : '#e64517';
+    ctx.lineWidth = MATS[b.mat].w;
+    ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(c.x, c.y); ctx.stroke();
+  }
+  for (const n of nodes){
+    ctx.fillStyle = n.fixed ? '#455a64' : '#22303c';
+    ctx.beginPath(); ctx.arc(n.x, n.y, n.fixed ? 8 : 5, 0, 7); ctx.fill();
+  }
+  if (truck){
+    ctx.fillStyle = '#e65100';
+    ctx.fillRect(truck.x-18, truck.y-24, 36, 18);
+    ctx.fillRect(truck.x+2, truck.y-34, 16, 12);
+    ctx.fillStyle = '#22303c';
+    ctx.beginPath(); ctx.arc(truck.x-10, truck.y-4, 5, 0, 7); ctx.arc(truck.x+10, truck.y-4, 5, 0, 7); ctx.fill();
+  }
+  ctx.fillStyle = 'rgba(90,140,180,.5)';
+  ctx.fillRect(0, 355, W, H-355);
+}
+function loop(){
+  if (testing) physStep();
+  draw();
+  requestAnimationFrame(loop);
+}
+restart(0); loop();
+</script>
+</body>
+</html>

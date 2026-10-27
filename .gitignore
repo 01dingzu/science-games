@@ -1,0 +1,3 @@
+# 验证脚本跑出来的临时文件
+_*.txt
+smoke-report-1*.txt

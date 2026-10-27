@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>疫苗工厂 · 与变异赛跑</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { background:#f5f7fa; color:#22303c; font-family:"Microsoft YaHei",sans-serif; display:flex; flex-direction:column; align-items:center; min-height:100vh; padding:16px; }
+  h1 { font-size:21px; margin-bottom:2px; }
+  .sub { color:#5b6b80; font-size:13px; margin-bottom:8px; text-align:center; }
+  #stage { font-size:14px; color:#6a1b9a; margin-bottom:8px; text-align:center; font-weight:bold; }
+  #stats { display:grid; grid-template-columns:repeat(4, 130px); gap:8px; margin-bottom:10px; }
+  .card { background:#fff; border-radius:10px; padding:8px 12px; font-size:13px; box-shadow:0 1px 4px rgba(0,0,0,.08); }
+  .card b { display:block; font-size:20px; margin-top:2px; }
+  #week { font-size:16px; font-weight:bold; color:#6a1b9a; margin-bottom:6px; }
+  #virus { background:#fff3e0; border-radius:10px; padding:10px 16px; font-size:14px; margin-bottom:10px; max-width:560px; text-align:center; }
+  #actions { display:grid; grid-template-columns:repeat(2, 270px); gap:8px; }
+  button { border:none; padding:12px; border-radius:10px; font-size:14px; cursor:pointer; color:#fff; text-align:left; }
+  button small { display:block; opacity:.85; font-size:11px; margin-top:3px; }
+  button:disabled { opacity:.4; cursor:not-allowed; }
+  #a1{background:#1565c0;} #a2{background:#2e7d32;} #a3{background:#ef6c00;} #a4{background:#8e24aa;}
+  #next { margin-top:12px; background:#c62828; padding:12px 40px; font-size:16px; }
+  #msg { min-height:48px; margin-top:10px; font-size:14px; max-width:560px; text-align:center; line-height:1.6; font-weight:bold; }
+  #log { font-size:12px; color:#5b6b80; max-width:560px; margin-top:6px; line-height:1.6; }
+  #curve { display:flex; gap:4px; margin-top:8px; align-items:flex-end; height:26px; }
+  #curve i { display:block; width:26px; background:#dfe4ea; border-radius:2px 2px 0 0; }
+  #curve i.done { background:#66bb6a; }
+  #curve i.cur { background:#ffb454; }
+  .tip { color:#5b6b80; font-size:12px; margin-top:10px; max-width:560px; text-align:center; line-height:1.7; }
+</style>
+<script src="hub.js"></script>
+</head>
+<body>
+<h1>💉 疫苗工厂</h1>
+<div class="sub">每周 4 个行动点，共 12 周。四个阶段：建线 → 首次变异 → 舆情危机 → 终局冲刺</div>
+<div id="stage"></div>
+<div id="stats">
+  <div class="card">🦠 感染人数<b id="inf">1,000</b></div>
+  <div class="card">🤝 公众信任<b id="trust">100</b></div>
+  <div class="card">💊 疫苗库存<b id="stock">0</b></div>
+  <div class="card">🎯 疫苗匹配度<b id="match">80</b>%</div>
+</div>
+<div id="week">第 1 周 / 共 12 周</div>
+<div id="virus"></div>
+<div id="actions">
+  <button id="a1" onclick="act(0)">🔬 研发攻关 <small>+15 疫苗匹配度（追踪最新毒株）</small></button>
+  <button id="a2" onclick="act(1)">🏭 扩大生产 <small>库存 +300 剂，信任 +2</small></button>
+  <button id="a3" onclick="act(2)">✅ 质量检验 <small>本周出厂合格率 +25%</small></button>
+  <button id="a4" onclick="act(3)">📣 科普宣传 <small>信任 +10，接种意愿 +</small></button>
+</div>
+<button id="next" onclick="nextWeek()">进入下周 →</button>
+<div id="msg"></div>
+<div id="log"></div>
+<div id="curve"></div>
+<div class="tip">变异周固定在第 4 / 7 / 10 周——提前一周囤研发和库存，才不会被动。<br>质检偷工减料省下的产能，最后都从公众信任里赔出去。</div>
+<script>
+"use strict";
+let week, infected, trust, stock, match, ap, qcBoost, log, over;
+const VARIANTS = [
+  {name:'Alpha 原始株', spread:1.0},
+  {name:'Beta 变异株', spread:1.3},
+  {name:'Gamma 变异株', spread:1.7},
+  {name:'Delta 变异株', spread:2.4},
+];
+// 四阶段：教学 → 首次变异 → 变异+舆情 → 终局冲刺；变异在 4/7/10 周
+const CHAPTERS = [
+  { name:'第一阶段 · 建线',     from:1,  to:3,  tip:'没有变异压力，专心把产线和公众信任搭起来' },
+  { name:'第二阶段 · 首次变异', from:4,  to:6,  tip:'变异来了，匹配度会掉——重投研发，别停' },
+  { name:'第三阶段 · 舆情危机', from:7,  to:9,  tip:'传播力更强，还会冒出负面舆情，信任要守牢' },
+  { name:'第四阶段 · 终局冲刺', from:10, to:12, tip:'最后一次变异，全部资源压上去' },
+];
+const MUT_WEEKS = [4, 7, 10];
+let virus;
+function chapterOf(w){
+  for (let i = 0; i < CHAPTERS.length; i++) if (w >= CHAPTERS[i].from && w <= CHAPTERS[i].to) return i;
+  return CHAPTERS.length - 1;
+}
+function restart(){
+  week = 1; infected = 1000; trust = 100; stock = 0; match = 80;
+  ap = 4; qcBoost = 0; log = []; over = false;
+  virus = VARIANTS[0];
+  render(); renderCurve();
+  setMsg('第 1 阶段 · ' + CHAPTERS[0].tip);
+}
+function renderCurve(){
+  const el = document.getElementById('curve');
+  el.innerHTML = '';
+  const cur = chapterOf(week);
+  [1,2,3,4].forEach(d => {
+    const b = document.createElement('i');
+    b.style.height = (6 + d*5) + 'px';
+    if (d - 1 < cur) b.className = 'done'; else if (d - 1 === cur) b.className = 'cur';
+    b.title = '第 ' + d + ' 阶段';
+    el.appendChild(b);
+  });
+}
+function render(){
+  document.getElementById('inf').textContent = Math.floor(infected).toLocaleString();
+  document.getElementById('trust').textContent = Math.floor(trust);
+  document.getElementById('stock').textContent = Math.floor(stock);
+  document.getElementById('match').textContent = Math.floor(match);
+  document.getElementById('week').textContent = '第 ' + week + ' 周 / 共 12 周';
+  document.getElementById('virus').innerHTML = '🦠 当前流行毒株：<b>' + virus.name + '</b>（传播力 ×' + virus.spread.toFixed(1) + '）';
+  const ch = CHAPTERS[chapterOf(week)];
+  document.getElementById('stage').textContent = ch.name + '（第 ' + ch.from + '–' + ch.to + ' 周）';
+  document.querySelectorAll('#actions button').forEach(b => b.disabled = ap <= 0 || over);
+}
+function setMsg(s){ document.getElementById('msg').textContent = s; }
+function act(i){
+  if (ap <= 0 || over) return;
+  ap--;
+  if (i === 0){ match = Math.min(95, match + 15); }
+  if (i === 1){ stock += 300; trust += 2; }
+  if (i === 2){ qcBoost += 25; }
+  if (i === 3){ trust = Math.min(120, trust + 10); }
+  render();
+}
+function nextWeek(){
+  if (over) return;
+  let produced = stock;
+  stock = 0;
+  let defect = false;
+  const failChance = Math.max(0, 0.25 - qcBoost/100);
+  if (produced > 0 && Math.random() < failChance){
+    defect = true;
+    produced *= 0.3;
+    trust -= 15;
+    log.unshift('❌ 第' + week + '周：质检不足，一批疫苗报废召回！信任 -15');
+  }
+  qcBoost = 0;
+  const coverage = Math.min(0.85, produced / Math.max(500, infected) * 0.5);
+  const growth = virus.spread * (0.6 + (100 - match)/100 * 1.2) * (1 - coverage) * (trust < 40 ? 1.5 : 1);
+  infected *= (1 + growth * 0.25);
+  if (produced > 0 && !defect){
+    infected -= produced * 0.8;
+    infected = Math.max(100, infected);
+    log.unshift('💉 第' + week + '周：接种 ' + Math.floor(produced) + ' 剂，疫情得到遏制');
+  }
+  // 阶段事件（越往后越多，也偶尔有好事）
+  const chIdx = chapterOf(week);
+  if (chIdx >= 1 && Math.random() < 0.25){
+    stock = Math.max(0, stock - 200);
+    log.unshift('📦 第' + week + '周：原料短缺，库存被抽走 200 剂');
+  }
+  if (chIdx >= 2 && Math.random() < 0.25){
+    trust -= 8;
+    log.unshift('📰 第' + week + '周：负面舆情发酵，信任 -8');
+  }
+  if (chIdx >= 3 && Math.random() < 0.2){
+    stock += 250;
+    log.unshift('🆘 第' + week + '周：紧急授权通道打开，额外到货 250 剂');
+  }
+  // 变异
+  if (MUT_WEEKS.includes(week)){
+    const ni = MUT_WEEKS.indexOf(week) + 1;
+    virus = VARIANTS[ni];
+    match = Math.max(30, match - 25);
+    log.unshift('🧬 第' + week + '周：病毒变异为 ' + virus.name + '！匹配度大跌，需要重新研发');
+  }
+  if (trust < 30){
+    over = true;
+    setMsg('💀 公众信任崩溃，拒绝接种，游戏结束（第 ' + week + ' 周）。感染人数：' + Math.floor(infected).toLocaleString());
+    hub.finish({ win:false, title:'💀 公众信任崩溃',
+      text:'信任跌破 30，人们拒绝接种。疫苗的敌人从来不只是病毒——还有怀疑。质检偷工减料省下的产能，最后都从信任里赔出去。',
+      stat:'第 ' + week + ' 周 · 感染 ' + Math.floor(infected).toLocaleString() + ' 人' });
+    render(); return;
+  }
+  const prevCh = chIdx;
+  week++;
+  ap = 4;
+  render(); renderCurve();
+  const newCh = chapterOf(week);
+  if (week > 12){
+    over = true;
+    const stars = infected < 8000 ? '★★★ 教科书级防控！' : infected < 15000 ? '★★☆ 稳住了' : '★☆☆ 惊险过关';
+    if (infected < 20000){
+      setMsg('🏆 胜利！疫情被控制在 ' + Math.floor(infected).toLocaleString() + ' 人。你的疫苗工厂立了大功！' + stars);
+      hub.finish({ win:true, title:'🏆 疫情被控制住了！',
+        text:'12 周内把感染压在 2 万人以内。你赢在两点：变异周（4/7/10）提前囤了研发，以及没让质检事故拖垮公众信任。',
+        stat:'感染 ' + Math.floor(infected).toLocaleString() + ' 人（目标 < 20,000）· ' + stars });
+    } else {
+      setMsg('😣 12 周结束，感染 ' + Math.floor(infected).toLocaleString() + ' 人。目标 < 20,000。再想想研发和产能的平衡？');
+      hub.finish({ win:false, title:'😣 12 周结束',
+        text:'感染没能压到 2 万人以下。复盘一下：变异周前有没有提前囤研发？产能爬坡是不是太晚？',
+        stat:'感染 ' + Math.floor(infected).toLocaleString() + ' 人（目标 < 20,000）' });
+    }
+    return;
+  }
+  if (newCh !== prevCh){
+    setMsg('📢 进入 ' + CHAPTERS[newCh].name + '：' + CHAPTERS[newCh].tip);
+  } else {
+    setMsg('本周结算：增长 ×' + growth.toFixed(2) + '（匹配度、产能、信任共同决定）');
+  }
+  document.getElementById('log').innerHTML = log.slice(0, 5).join('<br>');
+}
+restart();
+</script>
+</body>
+</html>

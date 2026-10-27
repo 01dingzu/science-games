@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>半导体小镇 · 制程之路</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { background:#f0f4f8; color:#1d2733; font-family:"Microsoft YaHei",sans-serif; display:flex; flex-direction:column; align-items:center; min-height:100vh; padding:16px; }
+  h1 { font-size:21px; margin-bottom:2px; }
+  .sub { color:#5b6b80; font-size:13px; margin-bottom:8px; text-align:center; }
+  #chapter { font-size:14px; font-weight:bold; color:#1565c0; margin-bottom:8px; text-align:center; }
+  #stats { display:grid; grid-template-columns:repeat(4, 150px); gap:8px; margin-bottom:12px; }
+  .card { background:#fff; border-radius:10px; padding:10px 14px; font-size:13px; box-shadow:0 1px 4px rgba(0,0,0,.08); }
+  .card b { display:block; font-size:19px; margin-top:2px; }
+  #node { font-size:14px; font-weight:bold; color:#1565c0; margin-bottom:8px; text-align:center; }
+  #chain { display:flex; gap:4px; flex-wrap:wrap; justify-content:center; margin-bottom:12px; font-size:12px; }
+  .stage { background:#fff; border-radius:8px; padding:6px 10px; box-shadow:0 1px 3px rgba(0,0,0,.08); }
+  .stage b { color:#e65100; }
+  #btns { display:grid; grid-template-columns:repeat(2, 300px); gap:8px; }
+  button { border:none; padding:11px 14px; border-radius:10px; font-size:13px; cursor:pointer; color:#fff; text-align:left; }
+  button small { display:block; opacity:.85; font-size:11px; margin-top:2px; }
+  button:disabled { opacity:.45; cursor:not-allowed; }
+  #bNext{background:#c62828; grid-column:span 2; text-align:center; font-size:15px; padding:13px;}
+  #bFab{background:#2e7d32;} #bPur{background:#00695c;} #bLit{background:#4527a0;} #bYld{background:#ef6c00;}
+  .nodeBtn { background:#546e7a; }
+  #msg { min-height:44px; margin-top:10px; font-size:14px; max-width:620px; text-align:center; line-height:1.6; font-weight:bold; }
+  #curve { display:flex; gap:4px; margin-top:8px; align-items:flex-end; height:26px; }
+  #curve i { display:block; width:26px; background:#dfe4ea; border-radius:2px 2px 0 0; }
+  #curve i.done { background:#66bb6a; }
+  #curve i.cur { background:#ffb454; }
+  .tip { color:#5b6b80; font-size:12px; margin-top:8px; max-width:600px; text-align:center; line-height:1.7; }
+</style>
+<script src="hub.js"></script>
+</head>
+<body>
+<h1>🖥️ 半导体小镇</h1>
+<div class="sub">经营芯片厂 20 个季度（四章），赚到 ¥10,000M 建成 3nm 产线</div>
+<div id="chapter"></div>
+<div id="stats">
+  <div class="card">💰 资金<b id="cash">¥500M</b></div>
+  <div class="card">🏭 季度产能<b id="cap">100</b> 万颗</div>
+  <div class="card">📈 良率<b id="yld">92</b>%</div>
+  <div class="card">🎯 当前制程<b id="proc">28nm</b></div>
+</div>
+<div id="node">制程切换：
+  <button class="nodeBtn" style="border:none;padding:6px 12px;border-radius:8px;color:#fff;cursor:pointer" onclick="setNode(0)">28nm ¥10</button>
+  <button class="nodeBtn" style="border:none;padding:6px 12px;border-radius:8px;color:#fff;cursor:pointer" onclick="setNode(1)">14nm ¥25</button>
+  <button class="nodeBtn" style="border:none;padding:6px 12px;border-radius:8px;color:#fff;cursor:pointer" onclick="setNode(2)">7nm ¥60</button>
+  <button class="nodeBtn" style="border:none;padding:6px 12px;border-radius:8px;color:#fff;cursor:pointer" onclick="setNode(3)">5nm ¥150</button>
+  <button class="nodeBtn" style="border:none;padding:6px 12px;border-radius:8px;color:#fff;cursor:pointer" onclick="setNode(4)">3nm ¥400</button>
+</div>
+<div id="chain"></div>
+<div id="btns">
+  <button id="bFab" onclick="upFab()">🏭 扩建产线 <small id="fabC"></small></button>
+  <button id="bPur" onclick="upPur()">🧪 升级提纯 <small id="purC"></small></button>
+  <button id="bLit" onclick="upLit()">🔦 引进光刻机 <small id="litC"></small></button>
+  <button id="bYld" onclick="upYld()">✅ 良率工程 <small id="yldC"></small></button>
+  <button id="bNext" onclick="nextQ()">进入下一季度 →</button>
+</div>
+<div id="msg"></div>
+<div id="curve"></div>
+<div class="tip">四章递进：站稳脚跟（无波动）→ 市场波动 → 设备禁运 → 先进制程豪赌。<br>纯度决定一切：硅提纯到 11 个 9 才能做芯片。制程越先进越贵，但良率越低——这就是芯片战争的赌局。</div>
+<script>
+"use strict";
+const NODES = [
+  {n:'28nm', price:10, litLv:1},
+  {n:'14nm', price:25, litLv:2},
+  {n:'7nm',  price:60, litLv:3},
+  {n:'5nm',  price:150, litLv:4},
+  {n:'3nm',  price:400, litLv:5},
+];
+const CHAPTERS = [
+  { name:'第一章 · 站稳脚跟',     from:1,  to:5,  ms:1500,  tip:'成熟制程稳定赚钱，先把提纯和良率堆起来' },
+  { name:'第二章 · 市场波动',     from:6,  to:10, ms:3200,  tip:'缺芯与需求疲软交替出现，学会留现金过冬' },
+  { name:'第三章 · 设备禁运',     from:11, to:15, ms:6000,  tip:'新机制：光刻机可能被卡脖子，运营成本和升级压力上升' },
+  { name:'第四章 · 制程豪赌',     from:16, to:20, ms:10000, tip:'终局：all in 先进制程，冲 ¥10,000M' },
+];
+let cash, cap, purityLv, litLv, yldLv, nodeIdx, quarter, over;
+const fabCost = () => Math.floor(150 * Math.pow(1.6, Math.log2(cap/100)));
+const purCost = () => Math.floor(120 * Math.pow(1.8, purityLv-1));
+const litCost = () => Math.floor(300 * Math.pow(2.5, litLv-1) * (chapterOf(quarter) >= 2 ? 1.4 : 1));
+const yldCost = () => Math.floor(100 * Math.pow(1.7, yldLv-2));
+function chapterOf(q){
+  for (let i = 0; i < CHAPTERS.length; i++) if (q >= CHAPTERS[i].from && q <= CHAPTERS[i].to) return i;
+  return CHAPTERS.length - 1;
+}
+function restart(){
+  cash = 500; cap = 100; purityLv = 1; litLv = 1; yldLv = 2; nodeIdx = 0; quarter = 1; over = false;
+  render(); renderCurve();
+  setMsg('欢迎来到半导体小镇。' + CHAPTERS[0].tip + '——第 5 季度末资金目标 ¥1,500M。');
+}
+function renderCurve(){
+  const el = document.getElementById('curve');
+  el.innerHTML = '';
+  const cur = chapterOf(quarter);
+  [1,2,3,4].forEach(d => {
+    const b = document.createElement('i');
+    b.style.height = (6 + d*5) + 'px';
+    if (d - 1 < cur) b.className = 'done'; else if (d - 1 === cur) b.className = 'cur';
+    b.title = '第 ' + d + ' 章';
+    el.appendChild(b);
+  });
+}
+function render(){
+  const ch = CHAPTERS[chapterOf(quarter)];
+  document.getElementById('chapter').textContent = ch.name + '（第 ' + ch.from + '–' + ch.to + ' 季度 · 章末目标 ¥' + ch.ms + 'M）';
+  document.getElementById('cash').textContent = '¥' + Math.floor(cash) + 'M';
+  document.getElementById('cap').textContent = cap;
+  document.getElementById('yld').textContent = yieldRate();
+  document.getElementById('proc').textContent = NODES[nodeIdx].n;
+  document.getElementById('fabC').textContent = '¥' + fabCost() + 'M，产能 +' + Math.ceil(cap*0.5);
+  document.getElementById('purC').textContent = '¥' + purCost() + 'M，纯度 Lv.' + purityLv + '→' + (purityLv+1) + '（提价 +8%）';
+  document.getElementById('litC').textContent = '¥' + litCost() + 'M，当前 Lv.' + litLv + '（解锁更先进制程）';
+  document.getElementById('yldC').textContent = '¥' + yldCost() + 'M，良率 +4%';
+  document.getElementById('chain').innerHTML =
+    '<span class="stage">⛏ 硅砂</span>→<span class="stage">🧪 提纯 <b>Lv.' + purityLv + '</b></span>→<span class="stage">🌀 拉晶切片</span>→<span class="stage">🔦 光刻 <b>Lv.' + litLv + '</b></span>→<span class="stage">✅ 良率 <b>' + yieldRate() + '%</b></span>→<span class="stage">💰 <b>' + NODES[nodeIdx].n + '</b></span>';
+}
+const yieldRate = () => {
+  const nodePenalty = nodeIdx * 7;
+  return Math.max(30, Math.min(99, 92 + (yldLv-2)*4 - nodePenalty));
+};
+function priceMul(){ return (1 + (purityLv-1)*0.08); }
+function setMsg(s){ document.getElementById('msg').textContent = s; }
+function setNode(i){
+  if (over) return;
+  if (litLv < NODES[i].litLv){
+    setMsg('❌ ' + NODES[i].n + ' 需要光刻机 Lv.' + NODES[i].litLv + '（当前 Lv.' + litLv + '）。没有 EUV，造不出先进芯片——卡脖子就卡在这！');
+    return;
+  }
+  nodeIdx = i;
+  setMsg('✔ 切换到 ' + NODES[i].n + ' 制程，单价 ¥' + NODES[i].price + '，良率降为 ' + yieldRate() + '%。先进制程是豪赌：卖得贵，但废品也多。');
+  render();
+}
+function upFab(){ if (cash >= fabCost()){ cash -= fabCost(); cap += Math.ceil(cap*0.5); render(); setMsg('🏭 产线扩建完成，产能 ' + cap + ' 万颗/季度。'); } else setMsg('资金不足。'); }
+function upPur(){ if (cash >= purCost()){ cash -= purCost(); purityLv++; render(); setMsg('🧪 提纯升级！硅纯度 ' + '9'.repeat(Math.min(11, 2+purityLv)) + '（约 99.9…%），芯片单价上浮。'); } else setMsg('资金不足。'); }
+function upLit(){ if (cash >= litCost()){ cash -= litCost(); litLv++; render(); setMsg('🔦 新光刻机到位 Lv.' + litLv + '！' + (litLv >= 4 ? '这就是传说中的 EUV，一台 15 亿——现在可以冲先进制程了。' : '可以解锁更先进的制程了。')); } else setMsg('资金不足。'); }
+function upYld(){ if (cash >= yldCost()){ cash -= yldCost(); yldLv++; render(); setMsg('✅ 良率工程见效：' + yieldRate() + '%。台积电的护城河就是它。'); } else setMsg('资金不足。'); }
+function nextQ(){
+  if (over) return;
+  const ch = chapterOf(quarter);
+  const good = Math.floor(cap * yieldRate()/100);
+  let revenue = good * NODES[nodeIdx].price * priceMul();
+  let ev = '';
+  const r = Math.random();
+  if (ch >= 1){
+    if (r < 0.12){ revenue *= 1.5; ev = '📈 本季度缺芯，售价 ×1.5！'; }
+    else if (r < 0.24){ revenue *= 0.6; ev = '📉 需求疲软，售价 ×0.6。'; }
+  }
+  let opex = 40 + cap * 0.3 + litLv * 30;
+  if (ch >= 2 && Math.random() < 0.22){
+    opex += 150;
+    ev += ' 🚫 设备禁运：备件与光刻胶涨价，本季度额外支出 ¥150M。';
+  }
+  cash += revenue - opex;
+  const prevCh = ch;
+  quarter++;
+  setMsg('第 ' + (quarter-1) + ' 季度结算：良品 ' + good + ' 万颗，营收 ¥' + Math.floor(revenue) + 'M，运营成本 ¥' + Math.floor(opex) + 'M。' + ev);
+  render(); renderCurve();
+  if (cash >= 10000){
+    over = true;
+    setMsg('🏆 资金突破 ¥10,000M！3nm 产线奠基，你赢得了这场芯片战争！');
+    hub.finish({ win:true, title:'🏆 赢得芯片战争！',
+      text:'资金突破 ¥10,000M，先进制程产线奠基。你玩明白了那条铁律：制程越先进，设备越贵、良率越难——所以全世界只剩几家玩得起。',
+      stat:'资金 ¥' + Math.floor(cash) + 'M · 第 ' + (quarter-1) + ' 季度' });
+    return;
+  }
+  if (quarter > 20){
+    over = true;
+    setMsg('⏰ 20 个季度结束，资金 ¥' + Math.floor(cash) + 'M / 10,000M 目标。');
+    hub.finish({ win: cash >= 5000, title: cash >= 5000 ? '📈 五年站稳脚跟' : '⏰ 20 个季度结束',
+      text: cash >= 5000 ? '五年做到 ¥5,000M 以上，已经在牌桌上了。想赢下战争，还得赌一次先进制程。'
+                         : '先进制程的学费很贵。下次试试：先把成熟制程的良率卷上去，攒够钱再跳代。',
+      stat:'资金 ¥' + Math.floor(cash) + 'M / 10,000M' });
+    return;
+  }
+  if (cash < 0){
+    over = true;
+    setMsg('💸 现金流断裂，工厂被收购。先进制程烧钱太快——这就是为什么只有极少数公司玩得起。');
+    hub.finish({ win:false, title:'💸 现金流断裂',
+      text:'工厂被收购了。一条先进产线几十亿美元起跳，良率爬坡还要烧几年钱——这就是为什么只有极少数公司玩得起。',
+      stat:'第 ' + (quarter-1) + ' 季度 · 资金 ¥' + Math.floor(cash) + 'M' });
+    return;
+  }
+  const newCh = chapterOf(quarter);
+  if (newCh !== prevCh){
+    const done = CHAPTERS[prevCh];
+    if (cash >= done.ms){
+      setMsg('✅ ' + done.name + ' 达标！章末资金 ¥' + Math.floor(cash) + 'M ≥ ¥' + done.ms + 'M。进入 ' + CHAPTERS[newCh].name + '：' + CHAPTERS[newCh].tip);
+    } else {
+      setMsg('⚠️ ' + done.name + ' 结束时资金 ¥' + Math.floor(cash) + 'M，没到 ¥' + done.ms + 'M 的章末目标。别慌，调整节奏：' + CHAPTERS[newCh].tip);
+    }
+  }
+}
+restart();
+</script>
+</body>
+</html>
